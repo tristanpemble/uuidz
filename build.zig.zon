@@ -1,0 +1,14 @@
+.{
+    .name = .uuidz,
+    .version = "0.1.0",
+    .fingerprint = 0x5db60e228db2be64,
+    .minimum_zig_version = "0.14.1",
+
+    .dependencies = .{},
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
