@@ -1,22 +1,51 @@
+const builtin = @import("builtin");
 const std = @import("std");
 
 const Allocator = std.mem.Allocator;
-const Random = std.rand.Random;
+const Random = std.Random;
 const Md5 = std.crypto.hash.Md5;
 const Sha1 = std.crypto.hash.Sha1;
 
+const native_endian = builtin.target.cpu.arch.endian();
 const rand = std.crypto.random;
 
-const ms_per_s = std.time.ms_per_s;
-const ns_per_s = std.time.ns_per_s;
-const ns_per_ms = std.time.ns_per_ms;
-const ns_per_tick = 100;
-const tick_per_s = std.time.ns_per_s / ns_per_tick;
+const StorageInt = if (native_endian == .big) u128 else [16]u8;
 
-const ticks_between_epochs: u64 = 0x01B2_1DD2_1381_4000;
+const greg_unix_offset = 0x01B21DD213814000;
+
+fn fieldBitOffset(comptime T: type, comptime field_name: []const u8) u16 {
+    const fields = std.meta.fields(T);
+    comptime var offset = 0;
+
+    if (!@hasField(T, field_name)) {
+        @compileError("Field '" ++ field_name ++ "' does not exist in type '" ++ @typeName(T) ++ "'");
+    }
+
+    inline for (fields) |field| {
+        if (std.mem.eql(u8, field.name, field_name)) {
+            return offset;
+        }
+        offset += @bitSizeOf(field.type);
+    }
+
+    unreachable;
+}
+
+fn read(comptime T: type, comptime field_name: []const u8, uuid: *const T) @FieldType(T, field_name) {
+    const bytes = @as(*const [@sizeOf(T)]u8, @ptrCast(uuid));
+    const offset = fieldBitOffset(T, field_name);
+    return std.mem.readPackedInt(@FieldType(T, field_name), bytes, offset, .big);
+}
+
+fn write(comptime T: type, comptime field_name: []const u8, uuid: *T, value: @FieldType(T, field_name)) void {
+    const bytes = @as(*[@sizeOf(T)]u8, @ptrCast(uuid));
+    const offset = fieldBitOffset(T, field_name);
+    std.mem.writePackedInt(@FieldType(T, field_name), bytes, offset, value, .big);
+}
 
 pub const Uuid = packed union {
     v1: V1,
+    v2: V2,
     v3: V3,
     v4: V4,
     v5: V5,
@@ -27,425 +56,474 @@ pub const Uuid = packed union {
     nil: Nil,
     max: Max,
 
-    pub const Nil = packed struct(u128) { bits: u128 };
-    pub const Max = packed struct(u128) { bits: u128 };
+    pub const Nil = packed struct(u128) { bits: u128 = 0x00000000_0000_0000_0000_000000000000 };
+    pub const Max = packed struct(u128) { bits: u128 = 0xFFFFFFFF_FFFF_FFFF_FFFF_FFFFFFFFFFFF };
 
-    pub const NIL = Uuid.Nil{ .bits = 0x00000000_0000_0000_0000_000000000000 };
-    pub const MAX = Uuid.Max{ .bits = 0xFFFFFFFF_FFFF_FFFF_FFFF_FFFFFFFFFFFF };
+    pub const namespace = struct {
+        pub const dns: Uuid = @bitCast(@as(u128, 0x6ba7b810_9dad_11d1_80b4_00c04fd430c8));
+        pub const url: Uuid = @bitCast(@as(u128, 0x6ba7b811_9dad_11d1_80b4_00c04fd430c8));
+        pub const oid: Uuid = @bitCast(@as(u128, 0x6ba7b812_9dad_11d1_80b4_00c04fd430c8));
+        pub const x500: Uuid = @bitCast(@as(u128, 0x6ba7b814_9dad_11d1_80b4_00c04fd430c8));
+    };
 
-    pub fn version(self: Uuid) Version {
+    // https://www.rfc-editor.org/rfc/rfc9562.html#name-version-field
+    pub fn getVersion(self: Uuid) ?Version {
+        // Versions are only meaningful and specified on RFC9562 compliant UUIDs.
+        if (self.getVariant() != .rfc9562) return null;
+
         const bytes = @as([16]u8, @bitCast(self));
-        return @enumFromInt(@as(u4, @truncate((bytes[6] >> 4) & 0xF)));
+        const value = std.mem.readPackedInt(u4, &bytes, 76, .big);
+
+        return switch (value) {
+            0 => .nil,
+            1 => .v1,
+            2 => .v2,
+            3 => .v3,
+            4 => .v4,
+            5 => .v5,
+            6 => .v6,
+            7 => .v7,
+            8 => .v8,
+            15 => .max,
+            else => null,
+        };
     }
 
-    pub fn variant(self: Uuid) Variant {
+    // https://www.rfc-editor.org/rfc/rfc9562.html#name-variant-field
+    pub fn getVariant(self: Uuid) Variant {
+        // This is not as straightforward as you might think. Because variants are stored with
+        // variable length encoding, we can't just interpret it as a u4.
+        //
+        // There is probably a better way to do this, but my brain is fried.
+
         const bytes = @as([16]u8, @bitCast(self));
-        return @enumFromInt(@as(u2, @truncate((bytes[8] >> 6) & 0x3)));
+        const value = bytes[8];
+
+        if (value & 0b10000000 == 0) return Variant.ncs;
+        if (value & 0b11000000 == 0b10000000) return Variant.rfc9562;
+        if (value & 0b11100000 == 0b11000000) return Variant.microsoft;
+
+        return Variant.future;
+    }
+
+    pub fn getNamespace(self: Uuid) ?Uuid {
+        _ = self;
+        @panic("todo");
+    }
+
+    pub fn getNode(self: Uuid) ?[6]u8 {
+        _ = self;
+        @panic("todo");
+    }
+
+    pub fn getTimestamp(self: Uuid) ?u64 {
+        _ = self;
+        @panic("todo");
+    }
+
+    pub fn isNil(self: Uuid) bool {
+        return self == Nil;
+    }
+
+    pub fn isMax(self: Uuid) bool {
+        return self == Max;
     }
 
     pub const Version = enum(u4) {
         nil = 0b0000,
-        mac = 1,
-        dce = 2,
-        md5 = 3,
-        random = 4,
-        sha1 = 5,
-        sort_mac = 6,
-        sort_rand = 7,
-        custom = 8,
+        v1 = 1,
+        v2 = 2,
+        v3 = 3,
+        v4 = 4,
+        v5 = 5,
+        v6 = 6,
+        v7 = 7,
+        v8 = 8,
         max = 0b1111,
-        _,
+
+        pub const mac = Version.v1;
+        pub const dce = Version.v2;
+        pub const md5 = Version.v3;
+        pub const random = Version.v4;
+        pub const sha1 = Version.v5;
+        pub const sort_mac = Version.v6;
+        pub const sort_rand = Version.v7;
+        pub const custom = Version.v8;
     };
 
-    pub const Variant = enum(u2) {
-        nil = 0,
-        rfc4122 = 1,
-        microsoft = 2,
-        reserved = 3,
+    // Variant is stored with variable length encoding, so cannot be represented as a u2/u4
+    pub const Variant = enum {
+        ncs,
+        rfc9562,
+        microsoft,
+        future,
     };
 
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-1
     pub const V1 = packed struct(u128) {
-        time_low: u32,
-        time_mid: u16,
-        version: u4 = 1,
-        time_high: u12,
-        variant: u2 = 0b10,
-        clock_seq: u14,
         node: u48,
+        clock_seq: u14,
+        variant: u2,
+        time_high: u12,
+        version: u4,
+        time_mid: u16,
+        time_low: u32,
+
+        pub const Timestamp = struct {
+            pub const ns_per_tick = 100;
+            pub const ns_unix_offset = greg_unix_offset * ns_per_tick;
+            tick: u60,
+            seq: u14,
+        };
 
         pub fn init(ts: Timestamp, node: u48) V1 {
-            const gregorian = ts.toV1();
+            var self: V1 = undefined;
 
-            return V1{
-                .time_low = @truncate(gregorian.ticks),
-                .time_mid = @truncate(gregorian.ticks >> 32),
-                .time_high = @truncate(gregorian.ticks >> 48),
-                .clock_seq = gregorian.counter,
-                .node = node,
-            };
+            write(V1, "node", &self, node);
+            write(V1, "clock_seq", &self, ts.seq);
+            write(V1, "variant", &self, 0b10);
+            write(V1, "time_high", &self, @as(u12, @truncate(ts.tick >> 48)));
+            write(V1, "version", &self, 1);
+            write(V1, "time_mid", &self, @as(u16, @truncate(ts.tick >> 32)));
+            write(V1, "time_low", &self, @as(u32, @truncate(ts.tick)));
+
+            return self;
         }
+
+        pub fn getVersion(self: *const V1) Version {
+            return (Uuid{ .v1 = self }).getVersion();
+        }
+
+        pub fn getVariant(self: *const V1) Variant {
+            return (Uuid{ .v1 = self }).getVariant();
+        }
+
+        pub fn getTimeLow(self: *const V1) u32 {
+            return read(V1, "time_low", self);
+        }
+
+        pub fn getTimeMid(self: *const V1) u16 {
+            return read(V1, "time_mid", self);
+        }
+
+        pub fn getTimeHigh(self: *const V1) u12 {
+            return read(V1, "time_high", self);
+        }
+
+        pub fn getTime(self: *const V1) u60 {
+            const low = self.getTimeLow();
+            const mid = self.getTimeMid();
+            const high = self.getTimeHigh();
+            return (@as(u60, high) << 48) | (@as(u60, mid) << 32) | low;
+        }
+
+        pub fn getClockSeq(self: *const V1) u14 {
+            return read(V1, "clock_seq", self);
+        }
+
+        pub fn getNode(self: *const V1) u48 {
+            return read(V1, "node", self);
+        }
+    };
+
+    /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-2
+    pub const V2 = packed struct(u128) {
+        low: u62,
+        variant: u2,
+        mid: u12,
+        version: u4,
+        high: u48,
+
+        // Generating a v2 is not (yet) supported.
     };
 
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-3
     pub const V3 = packed struct(u128) {
-        md5_high: u48,
-        version: u4 = 3,
-        md5_mid: u12,
-        variant: u2 = 0b10,
         md5_low: u62,
+        variant: u2,
+        md5_mid: u12,
+        version: u4,
+        md5_high: u48,
 
-        pub fn init(namespace: Uuid, name: []const u8) V3 {
+        pub fn init(ns: Uuid, name: []const u8) V3 {
             var hash: [16]u8 = undefined;
 
             var hasher = Md5.init(.{});
-            hasher.update(std.mem.asBytes(&namespace));
+            hasher.update(std.mem.asBytes(&ns));
             hasher.update(name);
             hasher.final(&hash);
 
             const md5 = std.mem.readInt(u128, &hash, .big);
 
-            return V3{
-                .md5_high = @truncate(md5 >> 80),
-                .md5_mid = @truncate(md5 >> 68),
-                .md5_low = @truncate(md5),
-            };
+            var self: V3 = undefined;
+
+            write(V3, "md5_low", &self, @as(u62, @truncate(md5)));
+            write(V3, "variant", &self, 0b10);
+            write(V3, "md5_mid", &self, @as(u12, @truncate(md5 >> 68)));
+            write(V3, "version", &self, 3);
+            write(V3, "md5_high", &self, @as(u48, @truncate(md5 >> 80)));
+
+            return self;
         }
     };
 
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-4
     pub const V4 = packed struct(u128) {
-        random_a: u48,
-        version: u4 = 4,
-        random_b: u12,
-        variant: u2 = 0b10,
         random_c: u62,
+        variant: u2,
+        random_b: u12,
+        version: u4,
+        random_a: u48,
 
         pub fn init() V4 {
-            return V4{
-                .random_a = rand.int(u48),
-                .random_b = rand.int(u12),
-                .random_c = rand.int(u62),
-            };
+            var self: V4 = undefined;
+
+            write(V4, "random_c", &self, rand.int(u62));
+            write(V4, "variant", &self, 0b10);
+            write(V4, "random_b", &self, rand.int(u12));
+            write(V4, "version", &self, 4);
+            write(V4, "random_a", &self, rand.int(u48));
+
+            return self;
         }
     };
 
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-5
     pub const V5 = packed struct(u128) {
-        sha1_high: u48,
-        version: u4 = 5,
-        sha1_mid: u12,
-        variant: u2 = 0b10,
         sha1_low: u62,
-
-        pub fn init(namespace: Uuid, name: []const u8) V5 {
+        variant: u2,
+        sha1_mid: u12,
+        version: u4,
+        sha1_high: u48,
+        pub fn init(ns: Uuid, name: []const u8) V5 {
             var hash: [20]u8 = undefined;
 
             var hasher = Sha1.init(.{});
-            hasher.update(std.mem.asBytes(&namespace));
+            hasher.update(std.mem.asBytes(&ns));
             hasher.update(name);
             hasher.final(&hash);
 
             const sha1 = std.mem.readInt(u128, hash[0..16], .big);
 
-            return V5{
-                .sha1_high = @truncate(sha1 >> 80),
-                .sha1_mid = @truncate(sha1 >> 68),
-                .sha1_low = @truncate(sha1),
-            };
+            var self: V5 = undefined;
+
+            write(V5, "sha1_low", &self, @as(u62, @truncate(sha1)));
+            write(V5, "variant", &self, 0b10);
+            write(V5, "sha1_mid", &self, @as(u12, @truncate(sha1 >> 68)));
+            write(V5, "version", &self, 5);
+            write(V5, "sha1_high", &self, @as(u48, @truncate(sha1 >> 80)));
+
+            return self;
         }
     };
 
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-6
     pub const V6 = packed struct(u128) {
-        time_high: u32,
-        time_mid: u16,
-        version: u4 = 6,
-        time_low: u12,
-        variant: u2 = 0b10,
-        clock_seq: u14,
         node: u48,
+        clock_seq: u14,
+        variant: u2,
+        time_low: u12,
+        version: u4,
+        time_mid: u16,
+        time_high: u32,
 
+        pub const Timestamp = struct {
+            pub const ns_per_tick = 100;
+            pub const ns_unix_offset = greg_unix_offset * ns_per_tick;
+            tick: u60,
+            seq: u14,
+        };
         pub fn init(ts: Timestamp, node: u48) V6 {
-            const gregorian = ts.toV1();
+            var self: V6 = undefined;
 
-            return V6{
-                .time_high = @truncate(gregorian.ticks >> 28),
-                .time_mid = @truncate(gregorian.ticks >> 12),
-                .time_low = @truncate(gregorian.ticks),
-                .clock_seq = gregorian.counter,
-                .node = node,
-            };
+            write(V6, "node", &self, node);
+            write(V6, "clock_seq", &self, ts.seq);
+            write(V6, "variant", &self, 0b10);
+            write(V6, "time_low", &self, @as(u12, @truncate(ts.tick)));
+            write(V6, "version", &self, 6);
+            write(V6, "time_mid", &self, @as(u16, @truncate(ts.tick >> 12)));
+            write(V6, "time_high", &self, @as(u32, @truncate(ts.tick >> 28)));
+
+            return self;
         }
     };
 
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-7
     pub const V7 = packed struct(u128) {
-        unix_ts_ms: u48,
-        version: u4 = 7,
-        rand_a: u12,
-        variant: u2 = 0b10,
         rand_b: u62,
+        variant: u2,
+        rand_a: u12,
+        version: u4,
+        unix_ts_ms: u48,
+
+        pub const Timestamp = struct {
+            pub const ns_per_tick = std.time.ns_per_ms;
+            pub const ns_unix_offset = 0;
+            tick: u48,
+            seq: u74,
+        };
 
         pub fn init(ts: Timestamp) V7 {
-            const unix = ts.getMillisCounter(48, 42);
+            var self: V7 = undefined;
 
-            return V7{
-                .unix_ts_ms = unix.millis,
-                .rand_a = @truncate(unix.counter >> 50),
-                .rand_b = @as(u62, @truncate(unix.counter << 12)) | rand.int(u12),
-            };
+            write(V7, "rand_b", &self, @as(u62, @truncate(ts.seq)));
+            write(V7, "variant", &self, 0b10);
+            write(V7, "rand_a", &self, @as(u12, @truncate(ts.seq >> 62)));
+            write(V7, "version", &self, 7);
+            write(V7, "unix_ts_ms", &self, ts.tick);
+
+            return self;
         }
     };
 
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-8
     pub const V8 = packed struct(u128) {
-        custom_a: u48,
-        version: u4 = 8,
-        custom_b: u12,
-        variant: u2 = 0b10,
         custom_c: u62,
+        variant: u2,
+        custom_b: u12,
+        version: u4,
+        custom_a: u48,
 
         pub fn init(custom: u122) V8 {
-            return V8{
-                .custom_a = @truncate(custom >> 74),
-                .custom_b = @truncate(custom >> 62),
-                .custom_c = @truncate(custom),
-            };
+            var self: V8 = undefined;
+
+            write(V8, "custom_c", &self, @as(u62, @truncate(custom)));
+            write(V8, "variant", &self, 0b10);
+            write(V8, "custom_b", &self, @as(u12, @truncate(custom >> 62)));
+            write(V8, "version", &self, 8);
+            write(V8, "custom_a", &self, @as(u48, @truncate(custom >> 74)));
+
+            return self;
         }
     };
-};
 
-pub const Timestamp = struct {
-    seconds: u64,
-    subsec: u32,
-    counter: u128,
-    usable_bits: u8,
+    pub fn format(
+        self: Uuid,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
 
-    pub fn fromGregorian(ticks: u64, counter: u128) Timestamp {
-        return Timestamp{
-            .seconds = ticks / tick_per_s,
-            .subsec = (ticks % tick_per_s) * ns_per_tick,
-            .counter = @intCast(counter),
-        };
-    }
-
-    pub fn fromUnix(seconds: u64, subsec: u32, ctx: anytype) Timestamp {
-        return Timestamp{
-            .seconds = seconds,
-            .subsec = subsec,
-            .counter = ctx.generateSequence(seconds, subsec),
-        };
-    }
-    pub fn getTicks(comptime width: u8) std.meta.Int(.unsigned, width) {
-        @panic("todo");
-    }
-
-    pub fn getMillisCounter(comptime millis_width: u8, comptime counter_width: u8) struct {
-        millis: std.meta.Int(.unsigned, millis_width),
-        counter: std.meta.Int(.unsigned, counter_width),
-    } {
-        return .{
-            .millis = @intCast(self.subsec / ns_per_ms),
-            .counter = @intCast(self.counter),
-        };
+        const bytes = @as([16]u8, @bitCast(self));
+        try writer.print("{x:0>2}{x:0>2}{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}", .{
+            bytes[0],  bytes[1],  bytes[2],  bytes[3],
+            bytes[4],  bytes[5],  bytes[6],  bytes[7],
+            bytes[8],  bytes[9],  bytes[10], bytes[11],
+            bytes[12], bytes[13], bytes[14], bytes[15],
+        });
     }
 };
 
-pub fn Sequence(comptime width: u8) type {
+pub const Clock = struct {
+    ptr: *anyopaque,
+    nanoTimestampFn: *const fn (ptr: *anyopaque) i128,
+
+    pub const System = Clock.init(&.{}, systemClock);
+    pub const Zero = Clock.init(&.{}, zeroClock);
+
+    pub fn init(ptr: *anyopaque, nanoTimestampFn: *const fn (ptr: *anyopaque) i128) Clock {
+        return Clock{
+            .ptr = ptr,
+            .nanoTimestampFn = nanoTimestampFn,
+        };
+    }
+
+    pub fn nanoTimestamp(self: *const Clock) i128 {
+        return self.nanoTimestampFn(self.ptr);
+    }
+
+    fn systemClock(_: *anyopaque) i128 {
+        return std.time.nanoTimestamp();
+    }
+
+    fn zeroClock(_: *anyopaque) i128 {
+        return 0;
+    }
+};
+
+pub fn ClockSequence(comptime Timestamp: type) type {
     return struct {
-        const Self = @This();
-        const Counter = std.meta.Int(.unsigned, width);
-        const Ts = Timestamp(width);
+        pub const Tick = @FieldType(Timestamp, "tick");
+        pub const Seq = @FieldType(Timestamp, "seq");
 
-        ptr: *anyopaque,
-        vtable: *const VTable,
+        clock: Clock = Clock.System,
+        rand: Random = std.crypto.random,
+        last: Tick = 0,
+        seq: Seq = 0,
 
-        const VTable = struct {
-            generateSequence: *const fn (ptr: *anyopaque, seconds: u64, subsec: u32) Counter,
-            generateTimestampSequence: *const fn (ptr: *anyopaque, seconds: u64, subsec: u32) struct {
-                counter: Counter,
-                seconds: u64,
-                subsec: u32,
-            },
-        };
+        pub fn next(self: *@This()) Timestamp {
+            const tick = self.tickTimestamp();
 
-        pub fn generateSequence(self: Self, seconds: u64, subsec: u32) Counter {
-            return self.vtable.generateSequence(self.ptr, seconds, subsec);
+            if (tick > self.last) {
+                self.last = tick;
+                self.seq = self.rand.int(Seq);
+            } else {
+                self.seq +%= 1;
+            }
+
+            return .{
+                .tick = self.last,
+                .seq = self.seq,
+            };
         }
 
-        pub fn generateTimestampSequence(self: Self, seconds: u64, subsec: u32) struct {
-            counter: Counter,
-            seconds: u64,
-            subsec: u32,
-        } {
-            return self.vtable.generateTimestampSequence(self.ptr, seconds, subsec);
-        }
-
-        pub fn now(self: Self) Ts {
-            const nanos = std.time.nanoTimestamp();
-
-            const seconds = @as(u64, @intCast(@divFloor(nanos, ns_per_s)));
-            const subsec = @as(u32, @intCast(@mod(nanos, ns_per_s)));
-
-            const result = self.generateTimestampSequence(seconds, subsec);
-
-            return Ts.fromUnix(result.seconds, result.subsec, result.counter);
+        fn tickTimestamp(self: *@This()) Tick {
+            const ns = self.clock.nanoTimestamp() + Timestamp.ns_unix_offset;
+            return @intCast(@divFloor(ns, Timestamp.ns_per_tick));
         }
     };
 }
 
-pub fn GregorianSequence(comptime width: u8) type {
-    if (width > 14) @compileError("Gregorian sequences support maximum 14-bit counters");
-
-    return struct {
-        const Self = @This();
-        const Counter = std.meta.Int(.unsigned, width);
-        const mask = (1 << width) - 1;
-
-        last_ticks: u60 = 0,
-        clock_seq: std.atomic.Value(Counter),
-
-        pub fn init() Self {
-            return Self{
-                .clock_seq = rand.int(Counter),
-            };
-        }
-
-        pub fn generate(self: *Self, seconds: u64, subsec: u32) struct {
-            counter: Counter,
-            seconds: u64,
-            subsec: u32,
-        } {
-            self.mutex.lock();
-            defer self.mutex.unlock();
-
-            const current_ticks: u60 = @intCast(ticks_between_epochs +
-                (seconds * tick_per_s) +
-                (subsec / ns_per_tick));
-
-            if (current_ticks <= self.last_ticks) {
-                // Clock hasn't advanced or went backward, increment clock sequence
-                self.clock_seq = (self.clock_seq +% 1) & mask;
-                if (self.clock_seq == 0) {
-                    // Overflow occurred, reinitialize
-                    self.clock_seq = rand.int(Counter) & mask;
-                }
-            } else {
-                self.last_ticks = current_ticks;
-            }
-
-            return .{
-                .counter = self.clock_seq,
-                .seconds = seconds,
-                .subsec = subsec,
-            };
-        }
-
-        pub fn sequence(self: *Self) Sequence(width) {
-            const vtable = &Sequence(width).VTable{
-                .generateTimestampSequence = struct {
-                    fn call(ptr: *anyopaque, seconds: u64, subsec: u32) struct {
-                        counter: Counter,
-                        seconds: u64,
-                        subsec: u32,
-                    } {
-                        const seq: *Self = @ptrCast(@alignCast(ptr));
-                        return seq.generate(seconds, subsec);
-                    }
-                }.call,
-            };
-
-            return Sequence(width){
-                .ptr = self,
-                .vtable = vtable,
-            };
-        }
-    };
+test "v1 generation" {
+    var v1_ctx = ClockSequence(Uuid.V1.Timestamp){};
+    const v1 = Uuid{ .v1 = .init(v1_ctx.next(), 69420) };
+    std.debug.print("v1 UUID: {}\n", .{v1});
+    try std.testing.expect(v1.getVersion() == .v1);
+    try std.testing.expect(v1.getVariant() == .rfc9562);
 }
 
-pub fn UnixSequence(comptime width: u8) type {
-    if (width < 12) @compileError("Unix sequences need at least 12 bits for sub-millisecond precision");
+test "v3 generation" {
+    const v3 = Uuid{ .v3 = .init(Uuid.namespace.dns, "example.com") };
+    std.debug.print("v3 UUID: {}\n", .{v3});
+    try std.testing.expect(v3.getVersion() == .v3);
+    try std.testing.expect(v3.getVariant() == .rfc9562);
+}
 
-    return struct {
-        const Self = @This();
-        const Counter = std.meta.Int(.unsigned, width);
-        const max_counter = std.math.maxInt(Counter);
+test "v4 generation" {
+    const v4 = Uuid{ .v4 = .init() };
+    std.debug.print("v4 UUID: {}\n", .{v4});
+    try std.testing.expect(v4.getVersion() == .v4);
+    try std.testing.expect(v4.getVariant() == .rfc9562);
+}
 
-        millis: u48 = 0,
-        counter: Counter,
+test "v5 generation" {
+    const v5 = Uuid{ .v5 = .init(Uuid.namespace.dns, "example.com") };
+    std.debug.print("v5 UUID: {}\n", .{v5});
+    try std.testing.expect(v5.getVersion() == .v5);
+    try std.testing.expect(v5.getVariant() == .rfc9562);
+}
 
-        pub fn init() Self {
-            return Self{
-                .counter = rand.int(Counter),
-            };
-        }
+test "v6 generation" {
+    var v6_ctx = ClockSequence(Uuid.V6.Timestamp){};
+    const v6 = Uuid{ .v6 = .init(v6_ctx.next(), 0x001122334455) };
+    std.debug.print("v6 UUID: {}\n", .{v6});
+    try std.testing.expect(v6.getVersion() == .v6);
+    try std.testing.expect(v6.getVariant() == .rfc9562);
+}
 
-        pub fn generate(self: *Self, seconds: u64, subsec: u32) struct {
-            seconds: u64,
-            subsec: u32,
-            counter: Counter,
-        } {
-            const current_millis: u48 = @intCast(seconds * ms_per_s + subsec / ns_per_ms);
+test "v7 generation" {
+    var v7_ctx = ClockSequence(Uuid.V7.Timestamp){};
+    const v7 = Uuid{ .v7 = .init(v7_ctx.next()) };
+    std.debug.print("v7 UUID: {}\n", .{v7});
+    try std.testing.expect(v7.getVersion() == .v7);
+    try std.testing.expect(v7.getVariant() == .rfc9562);
+}
 
-            if (current_millis == self.millis) {
-                // Same millisecond, increment counter for monotonicity
-                if (self.counter == max_counter) {
-                    // Counter overflow, wait for next millisecond or increment timestamp
-                    const new_subsec = subsec + ns_per_ms;
-                    if (new_subsec >= ns_per_s) {
-                        return self.generate(seconds + 1, new_subsec - ns_per_s);
-                    } else {
-                        return self.generate(seconds, new_subsec);
-                    }
-                }
-                self.counter +%= 1;
-            } else if (current_millis > self.millis) {
-                // New millisecond, reset counter with sub-millisecond precision
-                self.millis = current_millis;
-
-                // Encode sub-millisecond precision in counter
-                const submilli_ns = subsec % ns_per_ms;
-                const precision_bits = @min(width - 12, 20); // Reserve 12 bits for sequence
-                const submilli_fraction = if (precision_bits > 0)
-                    (@as(Counter, submilli_ns) << (width - precision_bits)) / ns_per_ms
-                else
-                    0;
-
-                self.counter = submilli_fraction | (rand.int(Counter) & ((1 << 12) - 1));
-            } else {
-                // Clock went backward, increment counter significantly
-                self.counter +%= 0x1000; // Increment by reasonable amount
-                if (self.counter == 0) {
-                    self.counter = rand.int(Counter);
-                }
-            }
-
-            return .{
-                .counter = self.counter,
-                .seconds = seconds,
-                .subsec = subsec,
-            };
-        }
-
-        pub fn sequence(self: *Self) Sequence(width) {
-            const vtable = &Sequence(width).VTable{
-                .generateTimestampSequence = struct {
-                    fn call(ptr: *anyopaque, seconds: u64, subsec: u32) struct {
-                        counter: Counter,
-                        seconds: u64,
-                        subsec: u32,
-                    } {
-                        const seq: *Self = @ptrCast(@alignCast(ptr));
-                        return seq.generate(seconds, subsec);
-                    }
-                }.call,
-            };
-
-            return Sequence(width){
-                .ptr = self,
-                .vtable = vtable,
-            };
-        }
-    };
+test "v8 generation" {
+    const v8 = Uuid{ .v8 = .init(0x123456789ABCDEF0123456789ABCDE) };
+    std.debug.print("v8 UUID: {}\n", .{v8});
+    try std.testing.expect(v8.getVersion() == .v8);
+    try std.testing.expect(v8.getVariant() == .rfc9562);
 }
