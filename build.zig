@@ -16,9 +16,21 @@ pub fn build(b: *std.Build) void {
         .root_module = mod,
     });
 
-
-
     b.installArtifact(lib);
+
+    // Example executable
+    const example = b.addExecutable(.{
+        .name = "usage",
+        .root_source_file = b.path("examples/usage.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    example.root_module.addImport("uuidz", mod);
+    b.installArtifact(example);
+
+    const run_example = b.addRunArtifact(example);
+    const example_step = b.step("example", "Run usage example");
+    example_step.dependOn(&run_example.step);
 
     const tests = b.addTest(.{
         .root_module = mod,

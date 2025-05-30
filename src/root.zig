@@ -1058,7 +1058,7 @@ pub fn ClockSequence(comptime Timestamp: type) type {
         };
 
         clock: Clock,
-        rand: Random,
+        rand: Random = std.crypto.random,
         last: Tick = 0,
         seq: Seq = 0,
 
@@ -1371,8 +1371,6 @@ test "v7 ordering" {
     try std.testing.expectEqual(std.time.ns_per_ms, two.getUnixMs() - one.getUnixMs());
 }
 
-
-
 test "v3 v5 deterministic" {
     const name = "test.example.com";
     const ns = Uuid.namespace.dns;
@@ -1411,8 +1409,6 @@ test "v4 randomness" {
         try seen.put(bytes, {});
     }
 }
-
-
 
 test "field extraction and union conversions" {
     // Test V1 field extraction
@@ -1552,14 +1548,14 @@ test "ordering comprehensive" {
 test "clock sequence edge cases" {
     // Test sequence overflow behavior
     var seq = ClockSequence(Uuid.V7.Timestamp).Zero;
-    
+
     // Force sequence to near overflow
     seq.seq = std.math.maxInt(@TypeOf(seq.seq)) - 1;
-    
+
     const ts1 = seq.next();
     const ts2 = seq.next(); // Should wrap around
     const ts3 = seq.next();
-    
+
     try std.testing.expectEqual(ts1.tick, ts2.tick);
     try std.testing.expectEqual(ts2.tick, ts3.tick);
     try std.testing.expect(ts2.seq == ts1.seq +% 1);
@@ -1584,7 +1580,7 @@ test "format edge cases" {
         const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{random_uuid});
         defer test_allocator.free(formatted);
         try std.testing.expectEqual(36, formatted.len); // Standard UUID string length
-        
+
         // Verify format structure (8-4-4-4-12)
         try std.testing.expectEqual('-', formatted[8]);
         try std.testing.expectEqual('-', formatted[13]);

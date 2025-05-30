@@ -1,63 +1,141 @@
-# sqlite3-uuidz
+# uuidz
 
-A SQLite extension providing comprehensive UUID functionality. Existing solutions lacked support for some UUID versions, had reliability issues, or default
-to TEXT representations instead of BLOB, which is annoying and wrong. Written in Zig as a thin wrapper around [libuuid](https://github.com/util-linux/util-linux/tree/master/libuuid).
+RFC 9562 compliant UUID implementation for Zig.
 
-## Disclaimer
+## Installation
 
-This project was written largely with the assistance of a large language model. While the code has been tested and reviewed, please use it with appropriate caution and testing in your own projects. If/when this project reaches more review and usage, and I have more confidence in it I will remove this disclaimer.
-For now, it was written to get my hobby project unblocked.
+Add to `build.zig.zon`:
 
-## Building
-
-### Nix
-
-Requires flakes to be enabled.
-
-```
-nix build github:tristanpemble/sqlite3-uuidz
+```zig
+.dependencies = .{
+    .uuidz = .{
+        .url = "https://github.com/user/uuidz/archive/main.tar.gz",
+        .hash = "1220...",
+    },
+},
 ```
 
-### Zig
+## Usage
 
-Requires `libsqlite3` and `libuuid` to be installed on your system.
+```zig
+const Uuid = @import("uuidz").Uuid;
 
-```
-zig build
-```
+// Random UUID (v4)
+const uuid = Uuid{ .v4 = .init() };
 
-## Reference
+// Time-based UUID (v7)
+const time_uuid = Uuid{ .v7 = .now() };
 
-```sqlite
--- UUID Generation
-SELECT uuid_v1();
-SELECT uuid_v3(uuid_parse('6ba7b810-9dad-11d1-80b4-00c04fd430c8'), 'example.com');
-SELECT uuid_v4();
-SELECT uuid_v5(uuid_parse('6ba7b811-9dad-11d1-80b4-00c04fd430c8'), 'https://example.com');
-SELECT uuid_v6();
-SELECT uuid_v7();
+// Name-based UUID (v5)
+const name_uuid = Uuid{ .v5 = .init(Uuid.namespace.dns, "example.com") };
 
--- UUID Conversion
-SELECT uuid_format(uuid_v4());
-SELECT uuid_parse('550e8400-e29b-41d4-a716-446655440000');
-
--- UUID Metadata
-SELECT uuid_version(uuid_v4());
-SELECT uuid_variant(uuid_v4());
-SELECT uuid_timestamp(uuid_v1());
-SELECT uuid_timestamp(uuid_v7());
-SELECT datetime(uuid_timestamp(uuid_v7()), 'unixepoch');
+// Convert formats
+const bytes = uuid.toBytes();
+const int = uuid.toNative();
+const from_bytes = Uuid.fromBytes(bytes);
 ```
 
-Or, to demonstrate a couple of usecases:
+## UUID Versions
 
-```sqlite
-CREATE TABLE users (
-    id          BLOB PRIMARY KEY DEFAULT (uuid_v7()),
-    display_id  TEXT GENERATED ALWAYS AS (uuid_format(id)) VIRTUAL,
-    name        TEXT,
-    CHECK (uuid_version(id) == 7)
-);
+```zig
+// v1: MAC + timestamp
+Uuid{ .v1 = .now(0x001122334455) }
+
+// v3: MD5 hash
+Uuid{ .v3 = .init(namespace, "name") }
+
+// v4: Random
+Uuid{ .v4 = .init() }
+
+// v5: SHA-1 hash
+Uuid{ .v5 = .init(namespace, "name") }
+
+// v6: Reordered time
+Uuid{ .v6 = .now(0x001122334455) }
+
+// v7: Unix timestamp
+Uuid{ .v7 = .now() }
+
+// v8: Custom
+Uuid{ .v8 = .init(0x123456789abcdef) }
+```
+
+## API
+
+### Core Methods
+
+- `fromBytes([16]u8) Uuid`
+- `toBytes() [16]u8`
+- `eql(Uuid) bool`
+- `getVersion() ?Version`
+
+### Constants
+
+- `Uuid.Nil` - nil UUID
+- `Uuid.Max` - max UUID
+- `Uuid.namespace.{dns,url,oid,x500}` - standard namespaces
+
+### Type-Safe Versions
+
+For when you need to ensure a specific version:
+
+```zig
+const v7_uuid: Uuid.V7 = .now();
+const generic_uuid = v7_uuid.toUuid();
+```
+
+### Clock Sequences & Entropy
+
+For time-based UUIDs (v1, v6, v7), clock sequences ensure uniqueness when generating multiple UUIDs at the same timestamp:
+
+```zig
+const uuidz = @import("uuidz");
+
+var clock_seq = uuidz.ClockSequence(uuidz.Uuid.V7.Timestamp){
+    .clock = uuidz.Clock.System,
+    .rand = std.crypto.random,
+};
+
+const ts = clock_seq.next();
+const uuid = uuidz.Uuid{ .v7 = .init(ts) };
+```
+
+You'll notice you can also provide your own random number generator. Built-in sequences:
+
+- `ClockSequence(...).System` - uses system clock
+- `ClockSequence(...).Zero` - uses zero clock (for testing)
+
+### Custom Clocks
+
+You can create and use your own clocks if you need custom timestamp behavior:
+
+```zig
+const FixedClock = struct {
+    fixed_time: i128,
+
+    fn nanoTimestamp(self: *FixedClock) i128 {
+        return self.fixed_time;
+    }
+
+    fn toClock(self: *FixedClock) Clock {
+        return uuidz.Clock.init(self, FixedClock.nanoTimestamp)
+    }
+};
+
+var my_fixed_clock = FixedClock{ .fixed_time = 1234567890_000_000_000 };
+
+var clock_seq = uuidz.ClockSequence(uuidz.Uuid.V7.Timestamp){
+    .clock = my_fixed_clock.toClock(),
+};
+
+const ts = clock_seq.next();
+const uuid = Uuid { .v7 = .init(ts) };
+```
+
+## Testing
+
+```bash
+zig build test
 ```
 
 ## License
