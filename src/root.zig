@@ -31,13 +31,13 @@ fn fieldBitOffset(comptime T: type, comptime field_name: []const u8) u16 {
     unreachable;
 }
 
-fn read(comptime T: type, comptime field_name: []const u8, uuid: *const T) @FieldType(T, field_name) {
+fn readField(comptime T: type, comptime field_name: []const u8, uuid: *const T) @FieldType(T, field_name) {
     const bytes = @as(*const [@sizeOf(T)]u8, @ptrCast(uuid));
     const offset = fieldBitOffset(T, field_name);
     return std.mem.readPackedInt(@FieldType(T, field_name), bytes, offset, .big);
 }
 
-fn write(comptime T: type, comptime field_name: []const u8, uuid: *T, value: @FieldType(T, field_name)) void {
+fn writeField(comptime T: type, comptime field_name: []const u8, uuid: *T, value: @FieldType(T, field_name)) void {
     const bytes = @as(*[@sizeOf(T)]u8, @ptrCast(uuid));
     const offset = fieldBitOffset(T, field_name);
     std.mem.writePackedInt(@FieldType(T, field_name), bytes, offset, value, .big);
@@ -53,18 +53,72 @@ pub const Uuid = packed union {
     v7: V7,
     v8: V8,
 
-    nil: Nil,
-    max: Max,
+    nil: enum(u128) { nil = std.math.minInt(u128) },
+    max: enum(u128) { max = std.math.maxInt(u128) },
 
-    pub const Nil = packed struct(u128) { bits: u128 = 0x00000000_0000_0000_0000_000000000000 };
-    pub const Max = packed struct(u128) { bits: u128 = 0xFFFFFFFF_FFFF_FFFF_FFFF_FFFFFFFFFFFF };
+    pub const Nil: Uuid = .fromNative(0x00000000_0000_0000_0000_000000000000);
+    pub const Max: Uuid = .fromNative(0xffffffff_ffff_ffff_ffff_ffffffffffff);
 
     pub const namespace = struct {
-        pub const dns: Uuid = @bitCast(@as(u128, 0x6ba7b810_9dad_11d1_80b4_00c04fd430c8));
-        pub const url: Uuid = @bitCast(@as(u128, 0x6ba7b811_9dad_11d1_80b4_00c04fd430c8));
-        pub const oid: Uuid = @bitCast(@as(u128, 0x6ba7b812_9dad_11d1_80b4_00c04fd430c8));
-        pub const x500: Uuid = @bitCast(@as(u128, 0x6ba7b814_9dad_11d1_80b4_00c04fd430c8));
+        pub const dns: Uuid = .fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
+        pub const url: Uuid = .fromNative(0x6ba7b811_9dad_11d1_80b4_00c04fd430c8);
+        pub const oid: Uuid = .fromNative(0x6ba7b812_9dad_11d1_80b4_00c04fd430c8);
+        pub const x500: Uuid = .fromNative(0x6ba7b814_9dad_11d1_80b4_00c04fd430c8);
     };
+
+    pub fn fromBytes(bytes: [16]u8) Uuid {
+        return @bitCast(bytes);
+    }
+
+    pub fn fromNative(int: u128) Uuid {
+        return switch (native_endian) {
+            .big => fromBig(int),
+            .little => fromLittle(int),
+        };
+    }
+
+    pub fn fromBig(int: u128) Uuid {
+        return @bitCast(@as(u128, @intCast(int)));
+    }
+
+    pub fn fromLittle(int: u128) Uuid {
+        return @bitCast(@byteSwap(@as(u128, @intCast(int))));
+    }
+
+    pub fn toBytes(self: Uuid) [16]u8 {
+        return @bitCast(self);
+    }
+
+    pub fn toNative(self: Uuid) u128 {
+        return switch (native_endian) {
+            .little => self.toLittle(),
+            .big => self.toBig(),
+        };
+    }
+
+    pub fn toBig(self: Uuid) u128 {
+        return @bitCast(self);
+    }
+
+    pub fn toLittle(self: Uuid) u128 {
+        return @byteSwap(@as(u128, @bitCast(self)));
+    }
+
+    pub fn asBytes(self: *const Uuid) *const [16]u8 {
+        return @ptrCast(self);
+    }
+
+    pub fn asSlice(self: *const Uuid) []const u8 {
+        return self.asBytes();
+    }
+
+    pub fn eql(self: Uuid, other: Uuid) bool {
+        return std.mem.eql(u8, self.asSlice(), other.asSlice());
+    }
+
+    pub fn order(self: Uuid, other: Uuid) std.math.Order {
+        return std.mem.order(u8, self.asSlice(), other.asSlice());
+    }
 
     // https://www.rfc-editor.org/rfc/rfc9562.html#name-version-field
     pub fn getVersion(self: Uuid) ?Version {
@@ -106,27 +160,12 @@ pub const Uuid = packed union {
         return Variant.future;
     }
 
-    pub fn getNamespace(self: Uuid) ?Uuid {
-        _ = self;
-        @panic("todo");
-    }
-
-    pub fn getNode(self: Uuid) ?[6]u8 {
-        _ = self;
-        @panic("todo");
-    }
-
-    pub fn getTimestamp(self: Uuid) ?u64 {
-        _ = self;
-        @panic("todo");
-    }
-
     pub fn isNil(self: Uuid) bool {
-        return self == Nil;
+        return self.eql(Nil);
     }
 
     pub fn isMax(self: Uuid) bool {
-        return self == Max;
+        return self.eql(Max);
     }
 
     pub const Version = enum(u4) {
@@ -174,55 +213,104 @@ pub const Uuid = packed union {
             pub const ns_unix_offset = greg_unix_offset * ns_per_tick;
             tick: u60,
             seq: u14,
+
+            pub fn now() Timestamp {
+                return ClockSequence(Timestamp).System.next();
+            }
         };
 
         pub fn init(ts: Timestamp, node: u48) V1 {
             var self: V1 = undefined;
 
-            write(V1, "node", &self, node);
-            write(V1, "clock_seq", &self, ts.seq);
-            write(V1, "variant", &self, 0b10);
-            write(V1, "time_high", &self, @as(u12, @truncate(ts.tick >> 48)));
-            write(V1, "version", &self, 1);
-            write(V1, "time_mid", &self, @as(u16, @truncate(ts.tick >> 32)));
-            write(V1, "time_low", &self, @as(u32, @truncate(ts.tick)));
+            writeField(V1, "node", &self, node);
+            writeField(V1, "clock_seq", &self, ts.seq);
+            writeField(V1, "variant", &self, 0b10);
+            writeField(V1, "time_high", &self, @as(u12, @truncate(ts.tick >> 48)));
+            writeField(V1, "version", &self, 1);
+            writeField(V1, "time_mid", &self, @as(u16, @truncate(ts.tick >> 32)));
+            writeField(V1, "time_low", &self, @as(u32, @truncate(ts.tick)));
 
             return self;
         }
 
-        pub fn getVersion(self: *const V1) Version {
-            return (Uuid{ .v1 = self }).getVersion();
+        pub fn now(node: u48) V1 {
+            return .init(.now(), node);
         }
 
-        pub fn getVariant(self: *const V1) Variant {
-            return (Uuid{ .v1 = self }).getVariant();
+        pub fn toUuid(self: V1) Uuid {
+            return .{ .v1 = self };
         }
 
-        pub fn getTimeLow(self: *const V1) u32 {
-            return read(V1, "time_low", self);
+        pub fn toBytes(self: V1) [16]u8 {
+            return @bitCast(self);
         }
 
-        pub fn getTimeMid(self: *const V1) u16 {
-            return read(V1, "time_mid", self);
+        pub fn toNative(self: V1) u128 {
+            return switch (native_endian) {
+                .little => self.toLittle(),
+                .big => self.toBig(),
+            };
         }
 
-        pub fn getTimeHigh(self: *const V1) u12 {
-            return read(V1, "time_high", self);
+        pub fn toBig(self: V1) u128 {
+            return @bitCast(self);
         }
 
-        pub fn getTime(self: *const V1) u60 {
-            const low = self.getTimeLow();
-            const mid = self.getTimeMid();
-            const high = self.getTimeHigh();
+        pub fn toLittle(self: V1) u128 {
+            return @byteSwap(@as(u128, @bitCast(self)));
+        }
+
+        pub fn asBytes(self: *const V1) *const [16]u8 {
+            return @ptrCast(self);
+        }
+
+        pub fn asSlice(self: V1) []u8 {
+            return self.asBytes();
+        }
+
+        pub fn eql(self: V1, other: V1) bool {
+            return std.mem.eql(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn order(self: V1, other: V1) std.math.Order {
+            return std.mem.order(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn getNode(self: V1) u48 {
+            return self.getNative("node");
+        }
+
+        pub fn getClockSeq(self: V1) u14 {
+            return self.getNative("clock_seq");
+        }
+
+        pub fn getVariant(self: V1) Variant {
+            return self.toUuid().getVariant();
+        }
+
+        pub fn getVersion(self: V1) Version {
+            return self.toUuid().getVersion().?;
+        }
+
+        pub fn getTime(self: V1) u60 {
+            const low = self.getNative("time_low");
+            const mid = self.getNative("time_mid");
+            const high = self.getNative("time_high");
+
             return (@as(u60, high) << 48) | (@as(u60, mid) << 32) | low;
         }
 
-        pub fn getClockSeq(self: *const V1) u14 {
-            return read(V1, "clock_seq", self);
+        pub fn format(
+            self: V1,
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            return self.toUuid().format(fmt, options, writer);
         }
 
-        pub fn getNode(self: *const V1) u48 {
-            return read(V1, "node", self);
+        fn getNative(self: V1, comptime field_name: []const u8) @FieldType(V1, field_name) {
+            return readField(V1, field_name, &self);
         }
     };
 
@@ -234,7 +322,77 @@ pub const Uuid = packed union {
         version: u4,
         high: u48,
 
-        // Generating a v2 is not (yet) supported.
+        pub fn toUuid(self: V2) Uuid {
+            return .{ .v2 = self };
+        }
+
+        pub fn toBytes(self: V2) [16]u8 {
+            return @bitCast(self);
+        }
+
+        pub fn toNative(self: V2) u128 {
+            return switch (native_endian) {
+                .little => self.toLittle(),
+                .big => self.toBig(),
+            };
+        }
+
+        pub fn toBig(self: V2) u128 {
+            return @bitCast(self);
+        }
+
+        pub fn toLittle(self: V2) u128 {
+            return @byteSwap(@as(u128, @bitCast(self)));
+        }
+
+        pub fn asBytes(self: *const V2) *const [16]u8 {
+            return @ptrCast(self);
+        }
+
+        pub fn asSlice(self: V2) []u8 {
+            return self.asBytes();
+        }
+
+        pub fn eql(self: V2, other: V2) bool {
+            return std.mem.eql(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn order(self: V2, other: V2) std.math.Order {
+            return std.mem.order(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn getVariant(self: V2) Variant {
+            return self.toUuid().getVariant();
+        }
+
+        pub fn getVersion(self: V2) Version {
+            return self.toUuid().getVersion().?;
+        }
+
+        pub fn getLow(self: V2) u62 {
+            return self.getNative("low");
+        }
+
+        pub fn getMid(self: V2) u12 {
+            return self.getNative("mid");
+        }
+
+        pub fn getHigh(self: V2) u48 {
+            return self.getNative("high");
+        }
+
+        pub fn format(
+            self: V2,
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            return self.toUuid().format(fmt, options, writer);
+        }
+
+        fn getNative(self: V2, comptime field_name: []const u8) @FieldType(V2, field_name) {
+            return readField(V2, field_name, self);
+        }
     };
 
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-3
@@ -257,13 +415,81 @@ pub const Uuid = packed union {
 
             var self: V3 = undefined;
 
-            write(V3, "md5_low", &self, @as(u62, @truncate(md5)));
-            write(V3, "variant", &self, 0b10);
-            write(V3, "md5_mid", &self, @as(u12, @truncate(md5 >> 68)));
-            write(V3, "version", &self, 3);
-            write(V3, "md5_high", &self, @as(u48, @truncate(md5 >> 80)));
+            writeField(V3, "md5_low", &self, @as(u62, @truncate(md5)));
+            writeField(V3, "variant", &self, 0b10);
+            writeField(V3, "md5_mid", &self, @as(u12, @truncate(md5 >> 68)));
+            writeField(V3, "version", &self, 3);
+            writeField(V3, "md5_high", &self, @as(u48, @truncate(md5 >> 80)));
 
             return self;
+        }
+
+        pub fn toUuid(self: V3) Uuid {
+            return .{ .v3 = self };
+        }
+
+        pub fn toBytes(self: V3) [16]u8 {
+            return @bitCast(self);
+        }
+
+        pub fn toNative(self: V3) u128 {
+            return switch (native_endian) {
+                .little => self.toLittle(),
+                .big => self.toBig(),
+            };
+        }
+
+        pub fn toBig(self: V3) u128 {
+            return @bitCast(self);
+        }
+
+        pub fn toLittle(self: V3) u128 {
+            return @byteSwap(@as(u128, @bitCast(self)));
+        }
+
+        pub fn asBytes(self: *const V3) *const [16]u8 {
+            return @ptrCast(self);
+        }
+
+        pub fn asSlice(self: V3) []u8 {
+            return self.asBytes();
+        }
+
+        pub fn eql(self: V3, other: V3) bool {
+            return std.mem.eql(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn order(self: V3, other: V3) std.math.Order {
+            return std.mem.order(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn getVariant(self: V3) Variant {
+            return self.toUuid().getVariant();
+        }
+
+        pub fn getVersion(self: V3) Version {
+            return self.toUuid().getVersion().?;
+        }
+
+        pub fn getMd5(self: V3) u122 {
+            const low = self.getNative("md5_low");
+            const mid = self.getNative("md5_mid");
+            const high = self.getNative("md5_high");
+
+            return (@as(u122, high) << 74) | (@as(u122, mid) << 62) | low;
+        }
+
+        pub fn format(
+            self: V3,
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            return self.toUuid().format(fmt, options, writer);
+        }
+
+        fn getNative(self: V3, comptime field_name: []const u8) @FieldType(V3, field_name) {
+            return readField(V3, field_name, &self);
         }
     };
 
@@ -278,13 +504,81 @@ pub const Uuid = packed union {
         pub fn init() V4 {
             var self: V4 = undefined;
 
-            write(V4, "random_c", &self, rand.int(u62));
-            write(V4, "variant", &self, 0b10);
-            write(V4, "random_b", &self, rand.int(u12));
-            write(V4, "version", &self, 4);
-            write(V4, "random_a", &self, rand.int(u48));
+            writeField(V4, "random_c", &self, rand.int(u62));
+            writeField(V4, "variant", &self, 0b10);
+            writeField(V4, "random_b", &self, rand.int(u12));
+            writeField(V4, "version", &self, 4);
+            writeField(V4, "random_a", &self, rand.int(u48));
 
             return self;
+        }
+
+        pub fn toUuid(self: V4) Uuid {
+            return .{ .v4 = self };
+        }
+
+        pub fn toBytes(self: V4) [16]u8 {
+            return @bitCast(self);
+        }
+
+        pub fn toNative(self: V4) u128 {
+            return switch (native_endian) {
+                .little => self.toLittle(),
+                .big => self.toBig(),
+            };
+        }
+
+        pub fn toBig(self: V4) u128 {
+            return @bitCast(self);
+        }
+
+        pub fn toLittle(self: V4) u128 {
+            return @byteSwap(@as(u128, @bitCast(self)));
+        }
+
+        pub fn asBytes(self: *const V4) *const [16]u8 {
+            return @ptrCast(self);
+        }
+
+        pub fn asSlice(self: V4) []u8 {
+            return self.asBytes();
+        }
+
+        pub fn eql(self: V4, other: V4) bool {
+            return std.mem.eql(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn order(self: V4, other: V4) std.math.Order {
+            return std.mem.order(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn getVariant(self: V4) Variant {
+            return self.toUuid().getVariant();
+        }
+
+        pub fn getVersion(self: V4) Version {
+            return self.toUuid().getVersion().?;
+        }
+
+        pub fn getRandom(self: V4) u122 {
+            const c = self.getNative("random_c");
+            const b = self.getNative("random_b");
+            const a = self.getNative("random_a");
+
+            return (@as(u122, a) << 74) | (@as(u122, b) << 62) | c;
+        }
+
+        pub fn format(
+            self: V4,
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            return self.toUuid().format(fmt, options, writer);
+        }
+
+        fn getNative(self: V4, comptime field_name: []const u8) @FieldType(V4, field_name) {
+            return readField(V4, field_name, &self);
         }
     };
 
@@ -295,6 +589,7 @@ pub const Uuid = packed union {
         sha1_mid: u12,
         version: u4,
         sha1_high: u48,
+
         pub fn init(ns: Uuid, name: []const u8) V5 {
             var hash: [20]u8 = undefined;
 
@@ -307,13 +602,81 @@ pub const Uuid = packed union {
 
             var self: V5 = undefined;
 
-            write(V5, "sha1_low", &self, @as(u62, @truncate(sha1)));
-            write(V5, "variant", &self, 0b10);
-            write(V5, "sha1_mid", &self, @as(u12, @truncate(sha1 >> 68)));
-            write(V5, "version", &self, 5);
-            write(V5, "sha1_high", &self, @as(u48, @truncate(sha1 >> 80)));
+            writeField(V5, "sha1_low", &self, @as(u62, @truncate(sha1)));
+            writeField(V5, "variant", &self, 0b10);
+            writeField(V5, "sha1_mid", &self, @as(u12, @truncate(sha1 >> 68)));
+            writeField(V5, "version", &self, 5);
+            writeField(V5, "sha1_high", &self, @as(u48, @truncate(sha1 >> 80)));
 
             return self;
+        }
+
+        pub fn toUuid(self: V5) Uuid {
+            return .{ .v5 = self };
+        }
+
+        pub fn toBytes(self: V5) [16]u8 {
+            return @bitCast(self);
+        }
+
+        pub fn toNative(self: V5) u128 {
+            return switch (native_endian) {
+                .little => self.toLittle(),
+                .big => self.toBig(),
+            };
+        }
+
+        pub fn toBig(self: V5) u128 {
+            return @bitCast(self);
+        }
+
+        pub fn toLittle(self: V5) u128 {
+            return @byteSwap(@as(u128, @bitCast(self)));
+        }
+
+        pub fn asBytes(self: *const V5) *const [16]u8 {
+            return @ptrCast(self);
+        }
+
+        pub fn asSlice(self: V5) []u8 {
+            return self.asBytes();
+        }
+
+        pub fn eql(self: V5, other: V5) bool {
+            return std.mem.eql(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn order(self: V5, other: V5) std.math.Order {
+            return std.mem.order(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn getVariant(self: V5) Variant {
+            return self.toUuid().getVariant();
+        }
+
+        pub fn getVersion(self: V5) Version {
+            return self.toUuid().getVersion().?;
+        }
+
+        pub fn getSha1(self: V5) u122 {
+            const low = self.getNative("sha1_low");
+            const mid = self.getNative("sha1_mid");
+            const high = self.getNative("sha1_high");
+
+            return (@as(u122, high) << 74) | (@as(u122, mid) << 62) | low;
+        }
+
+        pub fn format(
+            self: V5,
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            return self.toUuid().format(fmt, options, writer);
+        }
+
+        fn getNative(self: V5, comptime field_name: []const u8) @FieldType(V5, field_name) {
+            return readField(V5, field_name, &self);
         }
     };
 
@@ -332,19 +695,104 @@ pub const Uuid = packed union {
             pub const ns_unix_offset = greg_unix_offset * ns_per_tick;
             tick: u60,
             seq: u14,
+
+            pub fn now() Timestamp {
+                return ClockSequence(Timestamp).System.next();
+            }
         };
+
         pub fn init(ts: Timestamp, node: u48) V6 {
             var self: V6 = undefined;
 
-            write(V6, "node", &self, node);
-            write(V6, "clock_seq", &self, ts.seq);
-            write(V6, "variant", &self, 0b10);
-            write(V6, "time_low", &self, @as(u12, @truncate(ts.tick)));
-            write(V6, "version", &self, 6);
-            write(V6, "time_mid", &self, @as(u16, @truncate(ts.tick >> 12)));
-            write(V6, "time_high", &self, @as(u32, @truncate(ts.tick >> 28)));
+            writeField(V6, "node", &self, node);
+            writeField(V6, "clock_seq", &self, ts.seq);
+            writeField(V6, "variant", &self, 0b10);
+            writeField(V6, "time_low", &self, @as(u12, @truncate(ts.tick)));
+            writeField(V6, "version", &self, 6);
+            writeField(V6, "time_mid", &self, @as(u16, @truncate(ts.tick >> 12)));
+            writeField(V6, "time_high", &self, @as(u32, @truncate(ts.tick >> 28)));
 
             return self;
+        }
+
+        pub fn now(node: u48) V6 {
+            return .init(.now(), node);
+        }
+
+        pub fn toUuid(self: V6) Uuid {
+            return .{ .v6 = self };
+        }
+
+        pub fn toBytes(self: V6) [16]u8 {
+            return @bitCast(self);
+        }
+
+        pub fn toNative(self: V6) u128 {
+            return switch (native_endian) {
+                .little => self.toLittle(),
+                .big => self.toBig(),
+            };
+        }
+
+        pub fn toBig(self: V6) u128 {
+            return @bitCast(self);
+        }
+
+        pub fn toLittle(self: V6) u128 {
+            return @byteSwap(@as(u128, @bitCast(self)));
+        }
+
+        pub fn asBytes(self: *const V6) *const [16]u8 {
+            return @ptrCast(self);
+        }
+
+        pub fn asSlice(self: V6) []u8 {
+            return self.asBytes();
+        }
+
+        pub fn eql(self: V6, other: V6) bool {
+            return std.mem.eql(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn order(self: V6, other: V6) std.math.Order {
+            return std.mem.order(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn getNode(self: V6) u48 {
+            return self.getNative("node");
+        }
+
+        pub fn getClockSeq(self: V6) u14 {
+            return self.getNative("clock_seq");
+        }
+
+        pub fn getVariant(self: V6) Variant {
+            return self.toUuid().getVariant();
+        }
+
+        pub fn getVersion(self: V6) Version {
+            return self.toUuid().getVersion().?;
+        }
+
+        pub fn getTime(self: V6) u60 {
+            const low = self.getNative("time_low");
+            const mid = self.getNative("time_mid");
+            const high = self.getNative("time_high");
+
+            return (@as(u60, high) << 28) | (@as(u60, mid) << 12) | low;
+        }
+
+        pub fn format(
+            self: V6,
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            return self.toUuid().format(fmt, options, writer);
+        }
+
+        fn getNative(self: V6, comptime field_name: []const u8) @FieldType(V6, field_name) {
+            return readField(V6, field_name, &self);
         }
     };
 
@@ -361,18 +809,97 @@ pub const Uuid = packed union {
             pub const ns_unix_offset = 0;
             tick: u48,
             seq: u74,
+
+            pub fn now() Timestamp {
+                return ClockSequence(Timestamp).System.next();
+            }
         };
 
         pub fn init(ts: Timestamp) V7 {
             var self: V7 = undefined;
 
-            write(V7, "rand_b", &self, @as(u62, @truncate(ts.seq)));
-            write(V7, "variant", &self, 0b10);
-            write(V7, "rand_a", &self, @as(u12, @truncate(ts.seq >> 62)));
-            write(V7, "version", &self, 7);
-            write(V7, "unix_ts_ms", &self, ts.tick);
+            writeField(V7, "rand_b", &self, @as(u62, @truncate(ts.seq)));
+            writeField(V7, "variant", &self, 0b10);
+            writeField(V7, "rand_a", &self, @as(u12, @truncate(ts.seq >> 62)));
+            writeField(V7, "version", &self, 7);
+            writeField(V7, "unix_ts_ms", &self, ts.tick);
 
             return self;
+        }
+
+        pub fn now() V7 {
+            return .init(.now());
+        }
+
+        pub fn toUuid(self: V7) Uuid {
+            return .{ .v7 = self };
+        }
+
+        pub fn toBytes(self: V7) [16]u8 {
+            return @bitCast(self);
+        }
+
+        pub fn toNative(self: V7) u128 {
+            return switch (native_endian) {
+                .little => self.toLittle(),
+                .big => self.toBig(),
+            };
+        }
+
+        pub fn toBig(self: V7) u128 {
+            return @bitCast(self);
+        }
+
+        pub fn toLittle(self: V7) u128 {
+            return @byteSwap(@as(u128, @bitCast(self)));
+        }
+
+        pub fn asBytes(self: *const V7) *const [16]u8 {
+            return @ptrCast(self);
+        }
+
+        pub fn asSlice(self: V7) []u8 {
+            return self.asBytes();
+        }
+
+        pub fn eql(self: V7, other: V7) bool {
+            return std.mem.eql(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn order(self: V7, other: V7) std.math.Order {
+            return std.mem.order(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn getUnixMs(self: V7) u48 {
+            return self.getNative("unix_ts_ms");
+        }
+
+        pub fn getVariant(self: V7) Variant {
+            return self.toUuid().getVariant();
+        }
+
+        pub fn getVersion(self: V7) Version {
+            return self.toUuid().getVersion().?;
+        }
+
+        pub fn getRand(self: V7) u74 {
+            const b = self.getNative("rand_b");
+            const a = self.getNative("rand_a");
+
+            return (@as(u74, a) << 62) | b;
+        }
+
+        pub fn format(
+            self: V7,
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            return self.toUuid().format(fmt, options, writer);
+        }
+
+        fn getNative(self: V7, comptime field_name: []const u8) @FieldType(V7, field_name) {
+            return readField(V7, field_name, &self);
         }
     };
 
@@ -387,13 +914,81 @@ pub const Uuid = packed union {
         pub fn init(custom: u122) V8 {
             var self: V8 = undefined;
 
-            write(V8, "custom_c", &self, @as(u62, @truncate(custom)));
-            write(V8, "variant", &self, 0b10);
-            write(V8, "custom_b", &self, @as(u12, @truncate(custom >> 62)));
-            write(V8, "version", &self, 8);
-            write(V8, "custom_a", &self, @as(u48, @truncate(custom >> 74)));
+            writeField(V8, "custom_c", &self, @as(u62, @truncate(custom)));
+            writeField(V8, "variant", &self, 0b10);
+            writeField(V8, "custom_b", &self, @as(u12, @truncate(custom >> 62)));
+            writeField(V8, "version", &self, 8);
+            writeField(V8, "custom_a", &self, @as(u48, @truncate(custom >> 74)));
 
             return self;
+        }
+
+        pub fn toUuid(self: V8) Uuid {
+            return .{ .v8 = self };
+        }
+
+        pub fn toBytes(self: V8) [16]u8 {
+            return @bitCast(self);
+        }
+
+        pub fn toNative(self: V8) u128 {
+            return switch (native_endian) {
+                .little => self.toLittle(),
+                .big => self.toBig(),
+            };
+        }
+
+        pub fn toBig(self: V8) u128 {
+            return @bitCast(self);
+        }
+
+        pub fn toLittle(self: V8) u128 {
+            return @byteSwap(@as(u128, @bitCast(self)));
+        }
+
+        pub fn asBytes(self: *const V8) *const [16]u8 {
+            return @ptrCast(self);
+        }
+
+        pub fn asSlice(self: V8) []u8 {
+            return self.asBytes();
+        }
+
+        pub fn eql(self: V8, other: V8) bool {
+            return std.mem.eql(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn order(self: V8, other: V8) std.math.Order {
+            return std.mem.order(u8, self.asBytes(), other.asBytes());
+        }
+
+        pub fn getVariant(self: V8) Variant {
+            return self.toUuid().getVariant();
+        }
+
+        pub fn getVersion(self: V8) Version {
+            return self.toUuid().getVersion().?;
+        }
+
+        pub fn getCustom(self: V8) u122 {
+            const c = self.getNative("custom_c");
+            const b = self.getNative("custom_b");
+            const a = self.getNative("custom_a");
+
+            return (@as(u122, a) << 74) | (@as(u122, b) << 62) | c;
+        }
+
+        pub fn format(
+            self: V8,
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            return self.toUuid().format(fmt, options, writer);
+        }
+
+        fn getNative(self: V8, comptime field_name: []const u8) @FieldType(V8, field_name) {
+            return readField(V8, field_name, &self);
         }
     };
 
@@ -448,8 +1043,18 @@ pub fn ClockSequence(comptime Timestamp: type) type {
         pub const Tick = @FieldType(Timestamp, "tick");
         pub const Seq = @FieldType(Timestamp, "seq");
 
-        clock: Clock = Clock.System,
-        rand: Random = std.crypto.random,
+        pub var System: @This() = .{
+            .clock = Clock.System,
+            .rand = std.crypto.random,
+        };
+
+        pub var Zero: @This() = .{
+            .clock = Clock.Zero,
+            .rand = std.crypto.random,
+        };
+
+        clock: Clock,
+        rand: Random,
         last: Tick = 0,
         seq: Seq = 0,
 
@@ -476,54 +1081,116 @@ pub fn ClockSequence(comptime Timestamp: type) type {
     };
 }
 
-test "v1 generation" {
-    var v1_ctx = ClockSequence(Uuid.V1.Timestamp){};
-    const v1 = Uuid{ .v1 = .init(v1_ctx.next(), 69420) };
-    std.debug.print("v1 UUID: {}\n", .{v1});
-    try std.testing.expect(v1.getVersion() == .v1);
-    try std.testing.expect(v1.getVariant() == .rfc9562);
+const test_allocator = std.testing.allocator;
+
+test "nil" {
+    const uuid1 = Uuid.Nil;
+    const uuid2 = Uuid{ .nil = .nil };
+    const uuid3 = Uuid.fromNative(0);
+
+    try std.testing.expect(uuid1.eql(uuid2));
+    try std.testing.expect(uuid1.eql(uuid3));
+    try std.testing.expect(uuid2.eql(uuid3));
 }
 
-test "v3 generation" {
-    const v3 = Uuid{ .v3 = .init(Uuid.namespace.dns, "example.com") };
-    std.debug.print("v3 UUID: {}\n", .{v3});
-    try std.testing.expect(v3.getVersion() == .v3);
-    try std.testing.expect(v3.getVariant() == .rfc9562);
+test "max" {
+    const uuid1 = Uuid.Max;
+    const uuid2 = Uuid{ .max = .max };
+    const uuid3 = Uuid.fromNative(std.math.maxInt(u128));
+
+    try std.testing.expect(uuid1.eql(uuid2));
+    try std.testing.expect(uuid1.eql(uuid3));
+    try std.testing.expect(uuid2.eql(uuid3));
 }
 
-test "v4 generation" {
-    const v4 = Uuid{ .v4 = .init() };
-    std.debug.print("v4 UUID: {}\n", .{v4});
-    try std.testing.expect(v4.getVersion() == .v4);
-    try std.testing.expect(v4.getVariant() == .rfc9562);
+test "v1" {
+    const ts = Uuid.V1.Timestamp.now();
+    const uuid = Uuid.V1.init(ts, 69420);
+
+    try std.testing.expectEqual(uuid.getVersion(), .v1);
+    try std.testing.expectEqual(uuid.getVariant(), .rfc9562);
+    try std.testing.expectEqual(uuid.getTime(), ts.tick);
+    try std.testing.expectEqual(uuid.getClockSeq(), ts.seq);
+    try std.testing.expectEqual(uuid.getNode(), 69420);
 }
 
-test "v5 generation" {
-    const v5 = Uuid{ .v5 = .init(Uuid.namespace.dns, "example.com") };
-    std.debug.print("v5 UUID: {}\n", .{v5});
-    try std.testing.expect(v5.getVersion() == .v5);
-    try std.testing.expect(v5.getVariant() == .rfc9562);
+test "v3" {
+    const uuid = Uuid.V3.init(Uuid.namespace.dns, "example.com");
+
+    try std.testing.expectEqual(uuid.getVersion(), .v3);
+    try std.testing.expectEqual(uuid.getVariant(), .rfc9562);
 }
 
-test "v6 generation" {
-    var v6_ctx = ClockSequence(Uuid.V6.Timestamp){};
-    const v6 = Uuid{ .v6 = .init(v6_ctx.next(), 0x001122334455) };
-    std.debug.print("v6 UUID: {}\n", .{v6});
-    try std.testing.expect(v6.getVersion() == .v6);
-    try std.testing.expect(v6.getVariant() == .rfc9562);
+test "v4" {
+    const uuid = Uuid.V4.init();
+
+    try std.testing.expectEqual(uuid.getVersion(), .v4);
+    try std.testing.expectEqual(uuid.getVariant(), .rfc9562);
 }
 
-test "v7 generation" {
-    var v7_ctx = ClockSequence(Uuid.V7.Timestamp){};
-    const v7 = Uuid{ .v7 = .init(v7_ctx.next()) };
-    std.debug.print("v7 UUID: {}\n", .{v7});
-    try std.testing.expect(v7.getVersion() == .v7);
-    try std.testing.expect(v7.getVariant() == .rfc9562);
+test "v5" {
+    const uuid = Uuid.V5.init(Uuid.namespace.dns, "example.com");
+
+    try std.testing.expectEqual(uuid.getVersion(), .v5);
+    try std.testing.expectEqual(uuid.getVariant(), .rfc9562);
 }
 
-test "v8 generation" {
-    const v8 = Uuid{ .v8 = .init(0x123456789ABCDEF0123456789ABCDE) };
-    std.debug.print("v8 UUID: {}\n", .{v8});
-    try std.testing.expect(v8.getVersion() == .v8);
-    try std.testing.expect(v8.getVariant() == .rfc9562);
+test "v6" {
+    const ts = Uuid.V6.Timestamp.now();
+    const uuid = Uuid.V6.init(ts, 69420);
+
+    try std.testing.expectEqual(uuid.getVersion(), .v6);
+    try std.testing.expectEqual(uuid.getVariant(), .rfc9562);
+    try std.testing.expectEqual(uuid.getTime(), ts.tick);
+    try std.testing.expectEqual(uuid.getClockSeq(), ts.seq);
+    try std.testing.expectEqual(uuid.getNode(), 69420);
+}
+
+test "v7" {
+    const ts = Uuid.V7.Timestamp.now();
+    const uuid = Uuid.V7.init(ts);
+
+    try std.testing.expectEqual(uuid.getVersion(), .v7);
+    try std.testing.expectEqual(uuid.getVariant(), .rfc9562);
+    try std.testing.expectEqual(uuid.getUnixMs(), ts.tick);
+    try std.testing.expectEqual(uuid.getRand(), ts.seq);
+}
+
+test "v8" {
+    const custom = 0x123456789ABCDEF0123456789ABCDE;
+    const uuid = Uuid.V8.init(custom);
+
+    try std.testing.expectEqual(uuid.getVersion(), .v8);
+    try std.testing.expectEqual(uuid.getVariant(), .rfc9562);
+    try std.testing.expectEqual(uuid.getCustom(), custom);
+}
+
+test "equal" {
+    const uuid1 = Uuid.fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
+    const uuid2 = Uuid.fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
+    const uuid3 = Uuid.fromNative(0xDEADBEEF_DEAD_BEEF_DEAD_BEEFDEADBEEF);
+
+    try std.testing.expect(uuid1.eql(uuid2));
+    try std.testing.expect(uuid2.eql(uuid1));
+    try std.testing.expect(!uuid1.eql(uuid3));
+    try std.testing.expect(!uuid2.eql(uuid3));
+    try std.testing.expect(!uuid3.eql(uuid1));
+    try std.testing.expect(!uuid3.eql(uuid2));
+}
+
+test "order" {
+    const one = Uuid.V7.init(.now());
+    const two = Uuid.V7.init(.now());
+
+    try std.testing.expect(one.order(two) == .lt);
+    try std.testing.expect(two.order(one) == .gt);
+    try std.testing.expect(one.order(one) == .eq);
+}
+
+test "format" {
+    const uuid = Uuid.fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
+    const actual = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    defer test_allocator.free(actual);
+
+    try std.testing.expectEqualStrings("6ba7b810-9dad-11d1-80b4-00c04fd430c8", actual);
 }
