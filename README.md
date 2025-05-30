@@ -124,8 +124,9 @@ The algorithm works like this:
 - Get the current timestamp.
 - If the timestamp increased monotonically:
   - Generate a new cryptographically secure random sequence value.
-  - If the sequence increment overflowed, wait for the next tick.
-- If the timestamp did not increase monotonically, replace the sequence with a new cryptographically secure random value.
+- If the timestamp did not increase monotonically:
+  - Increment the sequence value with a new cryptographically secure random value.
+  - If this would cause an overflow, try again.
 
 This all occurs in an atomic compare-and-swap loop until the we obtain a unique timestamp and sequence counter.
 
