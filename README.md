@@ -2,6 +2,30 @@
 
 RFC 9562 compliant UUID implementation for Zig.
 
+## Design
+
+The library is built around a `Uuid` packed union that can represent any UUID format while maintaining type safety. Each UUID version (V1-V8) is implemented as its own packed struct with version-specific fields and methods.
+
+Key design decisions:
+
+- **Packed structs**: All UUID types are `packed struct(u128)` ensuring they're exactly 128 bits
+- **Union for flexibility**: The main `Uuid` type is a packed union allowing you to work with any version generically or access version-specific functionality
+- **Type safety**: You can use specific types like `Uuid.V4` when you know the version, or the union `Uuid` for generic handling
+- **Endianness handling**: Support for big-endian, little-endian, and native byte order conversions
+- **Thread safety**: Clock sequences use atomic operations for thread-safe timestamp generation
+- **RFC 9562 compliance**: Standard bit field layouts, variant bits, and version bits
+
+The core abstraction separates concerns:
+
+- Clock sequences handle timestamp uniqueness and ordering
+- Individual version structs handle format-specific logic
+- The union provides a common interface for all versions
+- Conversion methods handle different representations (bytes, integers, strings)
+
+This design allows compile-time type safety when you know the UUID version, runtime flexibility when you don't, and efficient representation regardless of how you use it.
+
+The design is heavily influenced by the Rust [uuid](https://github.com/uuid-rs/uuid) crate, with some Zig specific flavoring.
+
 ## Installation
 
 Add to `build.zig.zon`:
