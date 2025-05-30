@@ -264,7 +264,7 @@ pub const Uuid = packed union {
             return @ptrCast(self);
         }
 
-        pub fn asSlice(self: V1) []u8 {
+        pub fn asSlice(self: V1) []const u8 {
             return self.asBytes();
         }
 
@@ -349,7 +349,7 @@ pub const Uuid = packed union {
             return @ptrCast(self);
         }
 
-        pub fn asSlice(self: V2) []u8 {
+        pub fn asSlice(self: V2) []const u8 {
             return self.asBytes();
         }
 
@@ -391,7 +391,7 @@ pub const Uuid = packed union {
         }
 
         fn getNative(self: V2, comptime field_name: []const u8) @FieldType(V2, field_name) {
-            return readField(V2, field_name, self);
+            return readField(V2, field_name, &self);
         }
     };
 
@@ -451,7 +451,7 @@ pub const Uuid = packed union {
             return @ptrCast(self);
         }
 
-        pub fn asSlice(self: V3) []u8 {
+        pub fn asSlice(self: V3) []const u8 {
             return self.asBytes();
         }
 
@@ -540,7 +540,7 @@ pub const Uuid = packed union {
             return @ptrCast(self);
         }
 
-        pub fn asSlice(self: V4) []u8 {
+        pub fn asSlice(self: V4) []const u8 {
             return self.asBytes();
         }
 
@@ -638,7 +638,7 @@ pub const Uuid = packed union {
             return @ptrCast(self);
         }
 
-        pub fn asSlice(self: V5) []u8 {
+        pub fn asSlice(self: V5) []const u8 {
             return self.asBytes();
         }
 
@@ -746,7 +746,7 @@ pub const Uuid = packed union {
             return @ptrCast(self);
         }
 
-        pub fn asSlice(self: V6) []u8 {
+        pub fn asSlice(self: V6) []const u8 {
             return self.asBytes();
         }
 
@@ -858,7 +858,7 @@ pub const Uuid = packed union {
             return @ptrCast(self);
         }
 
-        pub fn asSlice(self: V7) []u8 {
+        pub fn asSlice(self: V7) []const u8 {
             return self.asBytes();
         }
 
@@ -950,7 +950,7 @@ pub const Uuid = packed union {
             return @ptrCast(self);
         }
 
-        pub fn asSlice(self: V8) []u8 {
+        pub fn asSlice(self: V8) []const u8 {
             return self.asBytes();
         }
 
