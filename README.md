@@ -20,94 +20,82 @@ Add to `build.zig.zon`:
 ```zig
 const Uuid = @import("uuidz").Uuid;
 
-// Random UUID (v4)
-const uuid = Uuid{ .v4 = .init() };
+// Typed versions to accept only one version
+const t1: Uuid.V1 = .now(0x001122334455);
+const t3: Uuid.V3 = .init(.dns, "tristanpemble.com");
+const t4: Uuid.V4 = .init();
+const t5: Uuid.V5 = .init(.dns, "tristanpemble.com");
+const t6: Uuid.V6 = .now(0x001122334455);
+const t7: Uuid.V7 = .now();
+const t8: Uuid.V8 = .init(0x123456789abcdef);
 
-// Time-based UUID (v7)
-const time_uuid = Uuid{ .v7 = .now() };
+// Union type to accept any version
+const u1: Uuid = .{ .v1 = .now(0x001122334455) };
+const u3: Uuid = .{ .v3 = .init(.dns, "tristanpemble.com") };
+const u4: Uuid = .{ .v4 = .init() };
+const u5: Uuid = .{ .v5 = .init(.dns, "tristanpemble.com") };
+const u6: Uuid = .{ .v6 = .now(0x001122334455) };
+const u7: Uuid = .{ .v7 = .now() };
+const u8: Uuid = .{ .v8 = .init(0xC0FFEE_101) };
 
-// Name-based UUID (v5)
-const name_uuid = Uuid{ .v5 = .init(Uuid.namespace.dns, "example.com") };
+// Compare
+const is_equal: bool = u1.eql(u2);
+const order: std.math.Order = u1.order(u2);
 
 // Convert formats
-const bytes = uuid.toBytes();
-const int = uuid.toNative();
-const from_bytes = Uuid.fromBytes(bytes);
+const uuid: Uuid = .fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
+const uuid_be: Uuid = .fromBig(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
+const uuid_le: Uuid = .fromLittle(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
+const uuid_by: Uuid = .fromBytes(.{ 0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8 });
+const int_ne: u128 = uuid.toNative();
+const int_be: u128 = uuid.toBig();
+const int_le: u128 = uuid.toLittle();
+const bytes: [16]u8 = uuid.toBytes();
+
+// Inspect
+const variant: Uuid.Variant = uuid.getVariant();
+const version: ?Uuid.Version = uuid.getVersion().?;
+
+const time = switch (version) {
+    .v1 => uuid.v1.getTime(),
+    .v6 => uuid.v6.getTime(),
+    .v7 => uuid.v7.getTime(),
+    else => @panic("unhandled uuid version"),
+}
 ```
 
-## UUID Versions
+## Clocks, clock sequences & entropy
+
+For time-based UUIDs (v1, v6, v7), clock sequences ensure uniqueness when multiple UUIDs are generated at the same timestamp. It does
+this by using a random initial sequence value that increments for each UUID within the same tick, as per RFC9562.
+
+We provide two ClockSequence implementations, but you are free to write your own:
+
+- `AtomicClockSequence`: The default, a lock-free, thread-safe implementation.
+- `LocalClockSequence`: A single-threaded implementation for maximum throughput.
+
+Both implementations accept a `Clock`, so that you can customize their behavior. We provide two clocks:
+
+- `SystemClock`: Uses the system clock to generate timestamps.
+- `ZeroClock`: Always returns zero.
+
+They also accept a `std.Random`, allowing you to use a custom random number generator.
+
+For example, to use a single-threaded `LocalClockSequence`, that only outputs zero, with a PRNG, to generate a v7 UUID:
 
 ```zig
-// v1: MAC + timestamp
-Uuid{ .v1 = .now(0x001122334455) }
-
-// v3: MD5 hash
-Uuid{ .v3 = .init(namespace, "name") }
-
-// v4: Random
-Uuid{ .v4 = .init() }
-
-// v5: SHA-1 hash
-Uuid{ .v5 = .init(namespace, "name") }
-
-// v6: Reordered time
-Uuid{ .v6 = .now(0x001122334455) }
-
-// v7: Unix timestamp
-Uuid{ .v7 = .now() }
-
-// v8: Custom
-Uuid{ .v8 = .init(0x123456789abcdef) }
-```
-
-## API
-
-### Core Methods
-
-- `fromBytes([16]u8) Uuid`
-- `toBytes() [16]u8`
-- `eql(Uuid) bool`
-- `getVersion() ?Version`
-
-### Constants
-
-- `Uuid.Nil` - nil UUID
-- `Uuid.Max` - max UUID
-- `Uuid.namespace.{dns,url,oid,x500}` - standard namespaces
-
-### Type-Safe Versions
-
-For when you need to ensure a specific version:
-
-```zig
-const v7_uuid: Uuid.V7 = .now();
-const generic_uuid = v7_uuid.toUuid();
-```
-
-### Clock Sequences & Entropy
-
-For time-based UUIDs (v1, v6, v7), clock sequences ensure uniqueness when generating multiple UUIDs at the same timestamp:
-
-```zig
-const uuidz = @import("uuidz");
-
-var clock_seq = uuidz.ClockSequence(uuidz.Uuid.V7.Timestamp){
-    .clock = uuidz.Clock.System,
-    .rand = std.crypto.random,
+var rng = std.Random.DefaultPrng.init(0);
+var clock_seq = uuidz.LocalClockSequence(uuidz.Uuid.V7.Timestamp){
+    .clock = uuidz.Clock.Zero,
+    .rand = rng.random(),
 };
 
-const ts = clock_seq.next();
-const uuid = uuidz.Uuid{ .v7 = .init(ts) };
+const uuid: Uuid.V7 = .init(clock_seq.next());
 ```
-
-You'll notice you can also provide your own random number generator. Built-in sequences:
-
-- `ClockSequence(...).System` - uses system clock
-- `ClockSequence(...).Zero` - uses zero clock (for testing)
 
 ### Custom Clocks
 
-You can create and use your own clocks if you need custom timestamp behavior:
+You can create and use your own clocks if you need custom behavior for your usecase.
 
 ```zig
 const FixedClock = struct {
@@ -118,24 +106,33 @@ const FixedClock = struct {
     }
 
     fn toClock(self: *FixedClock) Clock {
-        return uuidz.Clock.init(self, FixedClock.nanoTimestamp)
+        return Clock.init(self, FixedClock.nanoTimestamp)
     }
 };
 
 var my_fixed_clock = FixedClock{ .fixed_time = 1234567890_000_000_000 };
 
-var clock_seq = uuidz.ClockSequence(uuidz.Uuid.V7.Timestamp){
+var clock_seq = LocalClockSequence(Uuid.V7.Timestamp){
     .clock = my_fixed_clock.toClock(),
 };
 
-const ts = clock_seq.next();
-const uuid = Uuid { .v7 = .init(ts) };
+const uuid: Uuid = .{ .v7 = .init(clock_seq.next()) };
 ```
 
-## Testing
+## Examples
+
+There is example code in `example.zig`. You can run them:
 
 ```bash
-zig build test
+zig build example
+```
+
+## Benchmarking
+
+In case you care about generating UUIDs faster than you can put them anywhere, there's a benchmark:
+
+```bash
+zig build bench
 ```
 
 ## License

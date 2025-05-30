@@ -1,5 +1,7 @@
 const std = @import("std");
-const Uuid = @import("uuidz").Uuid;
+const uuidz = @import("uuidz");
+
+const Uuid = uuidz.Uuid;
 
 pub fn main() !void {
     // Random UUID
@@ -11,7 +13,7 @@ pub fn main() !void {
     std.debug.print("v7: {}\n", .{v7});
 
     // Name-based UUID
-    const v5 = Uuid{ .v5 = .init(Uuid.namespace.dns, "example.com") };
+    const v5 = Uuid{ .v5 = .init(.dns, "example.com") };
     std.debug.print("v5: {}\n", .{v5});
 
     // MAC + timestamp
@@ -34,4 +36,14 @@ pub fn main() !void {
     // Special UUIDs
     std.debug.print("nil: {}\n", .{Uuid.Nil});
     std.debug.print("max: {}\n", .{Uuid.Max});
+
+    // Customize clock sequence
+    var rng = std.Random.DefaultPrng.init(0);
+    var clock_seq = uuidz.LocalClockSequence(uuidz.Uuid.V7.Timestamp){
+        .clock = uuidz.Clock.Zero,
+        .rand = rng.random(),
+    };
+
+    const v7_prng: Uuid.V7 = .init(clock_seq.next());
+    std.debug.print("v7 Zero/PRNG: {}\n", .{v7_prng});
 }

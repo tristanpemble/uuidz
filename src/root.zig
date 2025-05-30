@@ -59,12 +59,10 @@ pub const Uuid = packed union {
     pub const Nil: Uuid = .fromNative(0x00000000_0000_0000_0000_000000000000);
     pub const Max: Uuid = .fromNative(0xffffffff_ffff_ffff_ffff_ffffffffffff);
 
-    pub const namespace = struct {
-        pub const dns: Uuid = .fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
-        pub const url: Uuid = .fromNative(0x6ba7b811_9dad_11d1_80b4_00c04fd430c8);
-        pub const oid: Uuid = .fromNative(0x6ba7b812_9dad_11d1_80b4_00c04fd430c8);
-        pub const x500: Uuid = .fromNative(0x6ba7b814_9dad_11d1_80b4_00c04fd430c8);
-    };
+    pub const dns: Uuid = .fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
+    pub const url: Uuid = .fromNative(0x6ba7b811_9dad_11d1_80b4_00c04fd430c8);
+    pub const oid: Uuid = .fromNative(0x6ba7b812_9dad_11d1_80b4_00c04fd430c8);
+    pub const x500: Uuid = .fromNative(0x6ba7b814_9dad_11d1_80b4_00c04fd430c8);
 
     pub fn fromBytes(bytes: [16]u8) Uuid {
         return @bitCast(bytes);
@@ -219,7 +217,7 @@ pub const Uuid = packed union {
             seq: u14,
 
             pub fn now() Timestamp {
-                return ClockSequence(Timestamp).System.next();
+                return AtomicClockSequence(Timestamp).System.next();
             }
         };
 
@@ -701,7 +699,7 @@ pub const Uuid = packed union {
             seq: u14,
 
             pub fn now() Timestamp {
-                return ClockSequence(Timestamp).System.next();
+                return AtomicClockSequence(Timestamp).System.next();
             }
         };
 
@@ -815,7 +813,7 @@ pub const Uuid = packed union {
             seq: u74,
 
             pub fn now() Timestamp {
-                return ClockSequence(Timestamp).System.next();
+                return AtomicClockSequence(Timestamp).System.next();
             }
         };
 
@@ -1042,7 +1040,7 @@ pub const Clock = struct {
     }
 };
 
-pub fn ClockSequence(comptime Timestamp: type) type {
+pub fn LocalClockSequence(comptime Timestamp: type) type {
     return struct {
         pub const Tick = @FieldType(Timestamp, "tick");
         pub const Seq = @FieldType(Timestamp, "seq");
@@ -1052,7 +1050,7 @@ pub fn ClockSequence(comptime Timestamp: type) type {
             .rand = std.crypto.random,
         };
 
-        pub var Zero: @This() = .{
+        pub const Zero: @This() = .{
             .clock = Clock.Zero,
             .rand = std.crypto.random,
         };
@@ -1076,6 +1074,68 @@ pub fn ClockSequence(comptime Timestamp: type) type {
                 .tick = self.last,
                 .seq = self.seq,
             };
+        }
+
+        fn tickTimestamp(self: *@This()) Tick {
+            const ns = self.clock.nanoTimestamp() + Timestamp.ns_unix_offset;
+            return @intCast(@divFloor(ns, Timestamp.ns_per_tick));
+        }
+    };
+}
+
+pub fn AtomicClockSequence(comptime Timestamp: type) type {
+    return struct {
+        pub const Tick = @FieldType(Timestamp, "tick");
+        pub const Seq = @FieldType(Timestamp, "seq");
+
+        pub const State = packed struct(u128) {
+            last: Tick = 0,
+            _: std.meta.Int(.unsigned, 128 - @bitSizeOf(Tick) - @bitSizeOf(Seq)) = 0,
+            seq: Seq = 0,
+        };
+
+        comptime {
+            if (@bitSizeOf(Tick) + @bitSizeOf(Seq) > 128) {
+                @compileError("Tick + Seq cannot exceed 128 bits");
+            }
+        }
+
+        pub var System: @This() = .{
+            .clock = Clock.System,
+        };
+
+        pub const Zero: @This() = .{
+            .clock = Clock.Zero,
+        };
+
+        clock: Clock,
+        rand: Random = std.crypto.random,
+        state: std.atomic.Value(State) = .init(.{}),
+
+        pub fn next(self: *@This()) Timestamp {
+            var new: State = .{};
+            const tick = self.tickTimestamp();
+
+            while (true) {
+                const old = self.state.load(.acquire);
+
+                if (tick > old.last) {
+                    new.last = tick;
+                    new.seq = self.rand.int(Seq);
+                } else {
+                    new.last = old.last;
+                    new.seq = old.seq +% 1;
+                }
+
+                if (self.state.cmpxchgWeak(old, new, .release, .acquire)) |_| {
+                    continue;
+                } else {
+                    return .{
+                        .tick = new.last,
+                        .seq = new.seq,
+                    };
+                }
+            }
         }
 
         fn tickTimestamp(self: *@This()) Tick {
@@ -1273,9 +1333,9 @@ test "version field compliance" {
         const uuid = switch (V) {
             Uuid.V1 => V.now(0x123456789ABC),
             Uuid.V2 => unreachable,
-            Uuid.V3 => V.init(Uuid.namespace.dns, "test"),
+            Uuid.V3 => V.init(.dns, "test"),
             Uuid.V4 => V.init(),
-            Uuid.V5 => V.init(Uuid.namespace.dns, "test"),
+            Uuid.V5 => V.init(.dns, "test"),
             Uuid.V6 => V.now(0x123456789ABC),
             Uuid.V7 => V.now(),
             Uuid.V8 => V.init(0x123456789ABCDEF0123456789ABCDE),
@@ -1340,7 +1400,7 @@ test "byte array round trip" {
 test "clock sequence rollover" {
     // Test that clock sequence increments when generating timestamps at the same tick
     inline for ([_]type{ Uuid.V1.Timestamp, Uuid.V6.Timestamp, Uuid.V7.Timestamp }) |Timestamp| {
-        var seq = ClockSequence(Timestamp).Zero;
+        var seq = AtomicClockSequence(Timestamp).Zero;
 
         const ts1 = seq.next();
         const ts2 = seq.next();
@@ -1354,7 +1414,7 @@ test "clock sequence rollover" {
 }
 
 test "v7 ordering" {
-    var seq = ClockSequence(Uuid.V7.Timestamp).Zero;
+    var seq = AtomicClockSequence(Uuid.V7.Timestamp).Zero;
 
     const ts1 = seq.next();
     var ts2 = seq.next();
@@ -1373,12 +1433,11 @@ test "v7 ordering" {
 
 test "v3 v5 deterministic" {
     const name = "test.example.com";
-    const ns = Uuid.namespace.dns;
 
-    const v3_1 = Uuid.V3.init(ns, name);
-    const v3_2 = Uuid.V3.init(ns, name);
-    const v5_1 = Uuid.V5.init(ns, name);
-    const v5_2 = Uuid.V5.init(ns, name);
+    const v3_1 = Uuid.V3.init(.dns, name);
+    const v3_2 = Uuid.V3.init(.dns, name);
+    const v5_1 = Uuid.V5.init(.dns, name);
+    const v5_2 = Uuid.V5.init(.dns, name);
 
     try std.testing.expect(v3_1.eql(v3_2));
     try std.testing.expect(v5_1.eql(v5_2));
@@ -1388,10 +1447,10 @@ test "v3 v5 deterministic" {
 test "v3 v5 namespace sensitivity" {
     const name = "example.com";
 
-    const v3_dns = Uuid.V3.init(Uuid.namespace.dns, name);
-    const v3_url = Uuid.V3.init(Uuid.namespace.url, name);
-    const v5_dns = Uuid.V5.init(Uuid.namespace.dns, name);
-    const v5_url = Uuid.V5.init(Uuid.namespace.url, name);
+    const v3_dns = Uuid.V3.init(.dns, name);
+    const v3_url = Uuid.V3.init(.url, name);
+    const v5_dns = Uuid.V5.init(.dns, name);
+    const v5_url = Uuid.V5.init(.url, name);
 
     try std.testing.expect(!v3_dns.eql(v3_url));
     try std.testing.expect(!v5_dns.eql(v5_url));
@@ -1446,7 +1505,7 @@ test "version-specific creation" {
     try std.testing.expectEqual(node, v1.getNode());
 
     // V3 with namespace and name
-    const v3 = Uuid.V3.init(Uuid.namespace.dns, "example.com");
+    const v3 = Uuid.V3.init(.dns, "example.com");
     try std.testing.expectEqual(.v3, v3.getVersion());
     try std.testing.expectEqual(.rfc9562, v3.getVariant());
 
@@ -1456,7 +1515,7 @@ test "version-specific creation" {
     try std.testing.expectEqual(.rfc9562, v4.getVariant());
 
     // V5 with namespace and name
-    const v5 = Uuid.V5.init(Uuid.namespace.url, "https://example.com");
+    const v5 = Uuid.V5.init(.url, "https://example.com");
     try std.testing.expectEqual(.v5, v5.getVersion());
     try std.testing.expectEqual(.rfc9562, v5.getVariant());
 
@@ -1483,21 +1542,21 @@ test "version-specific creation" {
 
 test "namespace UUIDs" {
     // Test predefined namespaces are correctly formatted
-    const dns_formatted = try std.fmt.allocPrint(test_allocator, "{}", .{Uuid.namespace.dns});
+    const dns_formatted = try std.fmt.allocPrint(test_allocator, "{}", .{Uuid.dns});
     defer test_allocator.free(dns_formatted);
     try std.testing.expectEqualStrings("6ba7b810-9dad-11d1-80b4-00c04fd430c8", dns_formatted);
 
-    const url_formatted = try std.fmt.allocPrint(test_allocator, "{}", .{Uuid.namespace.url});
+    const url_formatted = try std.fmt.allocPrint(test_allocator, "{}", .{Uuid.url});
     defer test_allocator.free(url_formatted);
     try std.testing.expectEqualStrings("6ba7b811-9dad-11d1-80b4-00c04fd430c8", url_formatted);
 
     // Test that all namespaces are different
-    try std.testing.expect(!Uuid.namespace.dns.eql(Uuid.namespace.url));
-    try std.testing.expect(!Uuid.namespace.dns.eql(Uuid.namespace.oid));
-    try std.testing.expect(!Uuid.namespace.dns.eql(Uuid.namespace.x500));
-    try std.testing.expect(!Uuid.namespace.url.eql(Uuid.namespace.oid));
-    try std.testing.expect(!Uuid.namespace.url.eql(Uuid.namespace.x500));
-    try std.testing.expect(!Uuid.namespace.oid.eql(Uuid.namespace.x500));
+    try std.testing.expect(!Uuid.dns.eql(.url));
+    try std.testing.expect(!Uuid.dns.eql(.oid));
+    try std.testing.expect(!Uuid.dns.eql(.x500));
+    try std.testing.expect(!Uuid.url.eql(.oid));
+    try std.testing.expect(!Uuid.url.eql(.x500));
+    try std.testing.expect(!Uuid.oid.eql(.x500));
 }
 
 test "conversion round trips" {
@@ -1547,7 +1606,42 @@ test "ordering comprehensive" {
 
 test "clock sequence edge cases" {
     // Test sequence overflow behavior
-    var seq = ClockSequence(Uuid.V7.Timestamp).Zero;
+    var seq = AtomicClockSequence(Uuid.V7.Timestamp).Zero;
+
+    // Force sequence to near overflow by manipulating the atomic state directly
+    const max_seq = std.math.maxInt(@TypeOf(seq).Seq);
+    const state = @TypeOf(seq).State{ .last = 0, .seq = max_seq - 1 };
+    seq.state.store(state, .release);
+
+    const ts1 = seq.next();
+    const ts2 = seq.next(); // Should wrap around
+    const ts3 = seq.next();
+
+    try std.testing.expectEqual(ts1.tick, ts2.tick);
+    try std.testing.expectEqual(ts2.tick, ts3.tick);
+    try std.testing.expect(ts2.seq == 0); // Wrapped to 0
+    try std.testing.expect(ts3.seq == 1); // Then incremented
+}
+
+test "single-threaded clock sequence rollover" {
+    // Test that single-threaded clock sequence increments when generating timestamps at the same tick
+    inline for ([_]type{ Uuid.V1.Timestamp, Uuid.V6.Timestamp, Uuid.V7.Timestamp }) |Timestamp| {
+        var seq = LocalClockSequence(Timestamp).Zero;
+
+        const ts1 = seq.next();
+        const ts2 = seq.next();
+        const ts3 = seq.next();
+
+        try std.testing.expectEqual(ts1.tick, ts2.tick);
+        try std.testing.expectEqual(ts2.tick, ts3.tick);
+        try std.testing.expect(ts2.seq == ts1.seq +% 1);
+        try std.testing.expect(ts3.seq == ts2.seq +% 1);
+    }
+}
+
+test "single-threaded clock sequence edge cases" {
+    // Test sequence overflow behavior
+    var seq = LocalClockSequence(Uuid.V7.Timestamp).Zero;
 
     // Force sequence to near overflow
     seq.seq = std.math.maxInt(@TypeOf(seq.seq)) - 1;
@@ -1558,8 +1652,75 @@ test "clock sequence edge cases" {
 
     try std.testing.expectEqual(ts1.tick, ts2.tick);
     try std.testing.expectEqual(ts2.tick, ts3.tick);
-    try std.testing.expect(ts2.seq == ts1.seq +% 1);
-    try std.testing.expect(ts3.seq == ts2.seq +% 1);
+    try std.testing.expect(ts2.seq == 0); // Wrapped to 0
+    try std.testing.expect(ts3.seq == 1); // Then incremented
+}
+
+test "clock sequence thread safety" {
+    if (builtin.single_threaded) return; // Skip on single-threaded builds
+
+    const ThreadCount = 16;
+    const IterationsPerThread = 1000;
+
+    var seq = AtomicClockSequence(Uuid.V7.Timestamp).Zero;
+    var threads: [ThreadCount]std.Thread = undefined;
+    var results: [ThreadCount][IterationsPerThread]Uuid.V7.Timestamp = undefined;
+
+    const ThreadArgs = struct {
+        seq: *AtomicClockSequence(Uuid.V7.Timestamp),
+        results: *[IterationsPerThread]Uuid.V7.Timestamp,
+    };
+
+    const worker = struct {
+        fn run(args: ThreadArgs) void {
+            for (args.results) |*result| {
+                result.* = args.seq.next();
+            }
+        }
+    }.run;
+
+    // Spawn threads
+    for (&threads, 0..) |*thread, i| {
+        const args = ThreadArgs{
+            .seq = &seq,
+            .results = &results[i],
+        };
+        thread.* = try std.Thread.spawn(.{}, worker, .{args});
+    }
+
+    // Wait for all threads to complete
+    for (threads) |thread| {
+        thread.join();
+    }
+
+    // Collect all timestamps and check for duplicates
+    var all_timestamps = std.ArrayList(Uuid.V7.Timestamp).init(test_allocator);
+    defer all_timestamps.deinit();
+
+    for (results) |thread_results| {
+        for (thread_results) |timestamp| {
+            try all_timestamps.append(timestamp);
+        }
+    }
+
+    // Sort timestamps to check for uniqueness
+    const sort_fn = struct {
+        fn lessThan(_: void, a: Uuid.V7.Timestamp, b: Uuid.V7.Timestamp) bool {
+            if (a.tick != b.tick) return a.tick < b.tick;
+            return a.seq < b.seq;
+        }
+    }.lessThan;
+
+    std.sort.insertion(Uuid.V7.Timestamp, all_timestamps.items, {}, sort_fn);
+
+    // Verify no duplicates (each timestamp should be unique or have different sequence numbers)
+    for (all_timestamps.items[0 .. all_timestamps.items.len - 1], all_timestamps.items[1..]) |curr, next| {
+        // Either different ticks, or same tick with different sequence numbers
+        try std.testing.expect(curr.tick != next.tick or curr.seq != next.seq);
+    }
+
+    // Verify that we got the expected number of timestamps
+    try std.testing.expectEqual(ThreadCount * IterationsPerThread, all_timestamps.items.len);
 }
 
 test "format edge cases" {
