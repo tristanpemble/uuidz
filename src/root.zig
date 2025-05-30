@@ -15,7 +15,6 @@ const Md5 = std.crypto.hash.Md5;
 const Sha1 = std.crypto.hash.Sha1;
 
 const native_endian = builtin.target.cpu.arch.endian();
-const rand = std.crypto.random;
 
 // The number of 100ns ticks from 15 Oct 1582 to 1 Jan 1970.
 const greg_unix_offset = 0x01B21DD213814000;
@@ -713,7 +712,7 @@ pub const Uuid = packed union {
         random_a: u48,
 
         /// Create a V4 UUID with cryptographic random data.
-        pub fn init() V4 {
+        pub fn init(rand: Random) V4 {
             var self: V4 = undefined;
 
             writeField(V4, "random_c", &self, rand.int(u62));
@@ -1714,7 +1713,7 @@ test "version field compliance" {
             Uuid.V1 => V.now(0x123456789ABC),
             Uuid.V2 => unreachable,
             Uuid.V3 => V.init(.dns, "test"),
-            Uuid.V4 => V.init(),
+            Uuid.V4 => V.init(std.crypto.random),
             Uuid.V5 => V.init(.dns, "test"),
             Uuid.V6 => V.now(0x123456789ABC),
             Uuid.V7 => V.now(),
@@ -1842,7 +1841,7 @@ test "v4 randomness" {
     defer seen.deinit();
 
     for (0..10_000) |_| {
-        const uuid = Uuid.V4.init();
+        const uuid = Uuid.V4.init(std.crypto.random);
         const bytes = uuid.toBytes();
         try std.testing.expect(!seen.contains(bytes));
         try seen.put(bytes, {});
@@ -1890,7 +1889,7 @@ test "version-specific creation" {
     try std.testing.expectEqual(.rfc9562, v3.getVariant());
 
     // V4 random
-    const v4 = Uuid.V4.init();
+    const v4 = Uuid.V4.init(std.crypto.random);
     try std.testing.expectEqual(.v4, v4.getVersion());
     try std.testing.expectEqual(.rfc9562, v4.getVariant());
 
@@ -2117,7 +2116,7 @@ test "format edge cases" {
 
     // Test that format length is always consistent
     for (0..100) |_| {
-        const random_uuid = Uuid.V4.init();
+        const random_uuid = Uuid.V4.init(std.crypto.random);
         const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{random_uuid});
         defer test_allocator.free(formatted);
         try std.testing.expectEqual(36, formatted.len); // Standard UUID string length

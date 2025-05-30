@@ -40,7 +40,7 @@ const Uuid = @import("uuidz").Uuid;
 // Typed versions to accept only one version
 const t1: Uuid.V1 = .now(0x001122334455);
 const t3: Uuid.V3 = .init(.dns, "tristanpemble.com");
-const t4: Uuid.V4 = .init();
+const t4: Uuid.V4 = .init(std.crypto.random);
 const t5: Uuid.V5 = .init(.dns, "tristanpemble.com");
 const t6: Uuid.V6 = .now(0x001122334455);
 const t7: Uuid.V7 = .now();
@@ -49,7 +49,7 @@ const t8: Uuid.V8 = .init(0x123456789abcdef);
 // Union type to accept any version
 const u1: Uuid = .{ .v1 = .now(0x001122334455) };
 const u3: Uuid = .{ .v3 = .init(.dns, "tristanpemble.com") };
-const u4: Uuid = .{ .v4 = .init() };
+const u4: Uuid = .{ .v4 = .init(std.crypto.random) };
 const u5: Uuid = .{ .v5 = .init(.dns, "tristanpemble.com") };
 const u6: Uuid = .{ .v6 = .now(0x001122334455) };
 const u7: Uuid = .{ .v7 = .now() };

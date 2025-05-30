@@ -7,7 +7,7 @@ pub fn main() !void {
     std.debug.print("bytes: {any}\n", .{uuid.asSlice()});
 
     // Random UUID
-    const v4 = Uuid{ .v4 = .init() };
+    const v4 = Uuid{ .v4 = .init(std.crypto.random) };
     std.debug.print("v4: {}\n", .{v4});
 
     // Time-based UUID
