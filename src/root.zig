@@ -1,3 +1,12 @@
+//! An RFC 9562 compliant UUID library with a union-based design for type safety.
+//!
+//! Features:
+//! - All UUID versions (1-8) with version-specific types.
+//! - Thread-safe and single-threaded clock sequence generators.
+//! - Standard namespace UUIDs and special values (nil, max).
+//! - Parsing, formatting, and conversion utilities.
+//! - Zero-allocation design with packed struct layouts.
+
 const builtin = @import("builtin");
 const std = @import("std");
 
@@ -8,8 +17,11 @@ const Sha1 = std.crypto.hash.Sha1;
 const native_endian = builtin.target.cpu.arch.endian();
 const rand = std.crypto.random;
 
+// The number of 100ns ticks from 15 Oct 1582 to 1 Jan 1970.
 const greg_unix_offset = 0x01B21DD213814000;
 
+/// An RFC 9562 UUID implementation with a union-based design for type-safe version handling.
+/// This supports all versions (1-8) through both a unified interface and version-specific types.
 pub const Uuid = packed union {
     v1: V1,
     v2: V2,
@@ -20,14 +32,21 @@ pub const Uuid = packed union {
     v7: V7,
     v8: V8,
 
+    /// The nil UUID (all zeros) as defined in RFC 9562
     pub const nil: Uuid = .fromNative(0x00000000_0000_0000_0000_000000000000);
+    /// The max UUID (all ones) as defined in RFC 9562
     pub const max: Uuid = .fromNative(0xffffffff_ffff_ffff_ffff_ffffffffffff);
 
-    pub const dns: Uuid = .fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
-    pub const url: Uuid = .fromNative(0x6ba7b811_9dad_11d1_80b4_00c04fd430c8);
-    pub const oid: Uuid = .fromNative(0x6ba7b812_9dad_11d1_80b4_00c04fd430c8);
-    pub const x500: Uuid = .fromNative(0x6ba7b814_9dad_11d1_80b4_00c04fd430c8);
+    /// The standard namespace for DNS names.
+    pub const dns: Uuid = Uuid.fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
+    /// The standard namespace for URLs.
+    pub const url: Uuid = Uuid.fromNative(0x6ba7b811_9dad_11d1_80b4_00c04fd430c8);
+    /// The standard namespace for ISO OIDs.
+    pub const oid: Uuid = Uuid.fromNative(0x6ba7b812_9dad_11d1_80b4_00c04fd430c8);
+    /// The standard namespace for X.500 Distinguished Names.
+    pub const x500: Uuid = Uuid.fromNative(0x6ba7b814_9dad_11d1_80b4_00c04fd430c8);
 
+    /// Parse a UUID from the standard string format.
     pub fn parse(input: []const u8) !Uuid {
         if (input.len != 36) return error.InvalidFormat;
 
@@ -66,44 +85,44 @@ pub const Uuid = packed union {
         });
     }
 
+    /// Format this UUID as the standard string.
     pub fn toString(self: Uuid) [36]u8 {
         const bytes = self.toBytes();
         const charset = std.fmt.hex_charset;
 
         var result: [36]u8 = undefined;
 
-        // First group: 8 hex chars (4 bytes)
         inline for (0..4) |i| {
             result[i * 2 + 0] = charset[bytes[i] >> 4];
             result[i * 2 + 1] = charset[bytes[i] & 15];
         }
+
         result[8] = '-';
 
-        // Second group: 4 hex chars (2 bytes)
         inline for (4..6) |i| {
             const pos = (i - 4) * 2 + 9;
             result[pos + 0] = charset[bytes[i] >> 4];
             result[pos + 1] = charset[bytes[i] & 15];
         }
+
         result[13] = '-';
 
-        // Third group: 4 hex chars (2 bytes)
         inline for (6..8) |i| {
             const pos = (i - 6) * 2 + 14;
             result[pos + 0] = charset[bytes[i] >> 4];
             result[pos + 1] = charset[bytes[i] & 15];
         }
+
         result[18] = '-';
 
-        // Fourth group: 4 hex chars (2 bytes)
         inline for (8..10) |i| {
             const pos = (i - 8) * 2 + 19;
             result[pos + 0] = charset[bytes[i] >> 4];
             result[pos + 1] = charset[bytes[i] & 15];
         }
+
         result[23] = '-';
 
-        // Fifth group: 12 hex chars (6 bytes)
         inline for (10..16) |i| {
             const pos = (i - 10) * 2 + 24;
             result[pos + 0] = charset[bytes[i] >> 4];
@@ -113,29 +132,35 @@ pub const Uuid = packed union {
         return result;
     }
 
+    /// Create a UUID from a big-endian byte array.
     pub fn fromBytes(bytes: [16]u8) Uuid {
         return @bitCast(bytes);
     }
 
-    pub fn fromNative(int: u128) Uuid {
+    /// Create a UUID from a native-endian u128 value.
+    pub fn fromNative(value: u128) Uuid {
         return switch (native_endian) {
-            .big => fromBig(int),
-            .little => fromLittle(int),
+            .big => fromBig(value),
+            .little => fromLittle(value),
         };
     }
 
-    pub fn fromBig(int: u128) Uuid {
-        return @bitCast(@as(u128, @intCast(int)));
+    /// Create a UUID from big-endian u128 value
+    pub fn fromBig(value: u128) Uuid {
+        return @bitCast(@as(u128, @intCast(value)));
     }
 
-    pub fn fromLittle(int: u128) Uuid {
-        return @bitCast(@byteSwap(@as(u128, @intCast(int))));
+    /// Create a UUID from little-endian u128 value
+    pub fn fromLittle(value: u128) Uuid {
+        return @bitCast(@byteSwap(@as(u128, @intCast(value))));
     }
 
+    /// Convert this UUID to big-endian byte array
     pub fn toBytes(self: Uuid) [16]u8 {
         return @bitCast(self);
     }
 
+    /// Convert this UUID to native-endian u128 value
     pub fn toNative(self: Uuid) u128 {
         return switch (native_endian) {
             .little => self.toLittle(),
@@ -143,31 +168,39 @@ pub const Uuid = packed union {
         };
     }
 
+    /// Convert this UUID to big-endian u128 value
     pub fn toBig(self: Uuid) u128 {
         return @bitCast(self);
     }
 
+    /// Convert this UUID to little-endian u128 value
     pub fn toLittle(self: Uuid) u128 {
         return @byteSwap(@as(u128, @bitCast(self)));
     }
 
+    /// Get a pointer to UUID bytes
     pub fn asBytes(self: *const Uuid) *const [16]u8 {
         return @ptrCast(self);
     }
 
+    /// Get this UUID as byte slice
     pub fn asSlice(self: *const Uuid) []const u8 {
         return self.asBytes();
     }
 
+    /// Test equality with another UUID.
     pub fn eql(self: Uuid, other: Uuid) bool {
         return std.mem.eql(u8, self.asSlice(), other.asSlice());
     }
 
+    /// Compare ordering with another UUID.
     pub fn order(self: Uuid, other: Uuid) std.math.Order {
         return std.mem.order(u8, self.asSlice(), other.asSlice());
     }
 
-    // https://www.rfc-editor.org/rfc/rfc9562.html#name-version-field
+    /// Extract the version field (4 bits at offset 48-51).
+    ///
+    /// https://www.rfc-editor.org/rfc/rfc9562.html#name-version-field
     pub fn getVersion(self: Uuid) ?Version {
         const bytes = @as([16]u8, @bitCast(self));
         const value = std.mem.readPackedInt(u4, &bytes, 76, .big);
@@ -194,13 +227,14 @@ pub const Uuid = packed union {
         };
     }
 
-    // https://www.rfc-editor.org/rfc/rfc9562.html#name-variant-field
+    /// Extract the variant field (variable length at offset 64-65+).
+    ///
+    /// https://www.rfc-editor.org/rfc/rfc9562.html#name-variant-field
     pub fn getVariant(self: Uuid) Variant {
         // This is not as straightforward as you might think. Because variants are stored with
         // variable length encoding, we can't just interpret it as a u4.
         //
         // There is probably a better way to do this, but my brain is fried.
-
         const bytes = @as([16]u8, @bitCast(self));
         const value = bytes[8];
 
@@ -211,65 +245,107 @@ pub const Uuid = packed union {
         return Variant.future;
     }
 
+    /// Test if UUID is the nil UUID (all zeros)
     pub fn isNil(self: Uuid) bool {
         return self.eql(nil);
     }
 
+    /// Test if UUID is the max UUID (all ones)
     pub fn isMax(self: Uuid) bool {
         return self.eql(max);
     }
 
+    /// UUID version identifiers as defined in RFC 9562.
     pub const Version = enum(u4) {
+        /// Special nil UUID (all zeros)
         nil = 0b0000,
+        /// Time-based UUID with MAC address
         v1 = 1,
+        /// DCE Security UUID (rarely used)
         v2 = 2,
+        /// Name-based UUID using MD5 hash
         v3 = 3,
+        /// Random or pseudo-random UUID
         v4 = 4,
+        /// Name-based UUID using SHA-1 hash
         v5 = 5,
+        /// Reordered time-based UUID with MAC address
         v6 = 6,
+        /// Unix timestamp-based UUID with random data
         v7 = 7,
+        /// Custom/experimental UUID format
         v8 = 8,
+        /// Special max UUID (all ones)
         max = 0b1111,
 
+        /// Alias for v1 (time-based UUID with MAC address)
         pub const mac = Version.v1;
+        /// Alias for v2 (DCE Security UUID)
         pub const dce = Version.v2;
+        /// Alias for v3 (name-based UUID using MD5 hash)
         pub const md5 = Version.v3;
+        /// Alias for v4 (random or pseudo-random UUID)
         pub const random = Version.v4;
+        /// Alias for v5 (name-based UUID using SHA-1 hash)
         pub const sha1 = Version.v5;
+        /// Alias for v6 (reordered time-based UUID with MAC address)
         pub const sort_mac = Version.v6;
+        /// Alias for v7 (Unix timestamp-based UUID with random data)
         pub const sort_rand = Version.v7;
+        /// Alias for v8 (custom/experimental UUID format)
         pub const custom = Version.v8;
     };
 
-    // Variant is stored with variable length encoding, so cannot be represented as a u2/u4
+    /// UUID variant field values.
     pub const Variant = enum {
+        /// NCS/Reserved
         ncs,
+        /// RFC 9562 variant (most common)
         rfc9562,
+        /// Microsoft variant
         microsoft,
+        /// Future use
         future,
     };
 
+    /// Version 1: Gregorian time + node ID (MAC address).
+    /// Time-ordered but reveals the MAC address and creation time.
+    ///
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-1
     pub const V1 = packed struct(u128) {
+        /// The 48-bit node ID (typically a MAC address).
         node: u48,
+        /// The 14-bit clock sequence for collision avoidance.
         clock_seq: u14,
+        /// The 2-bit variant field (should be 0b10).
         variant: u2,
+        /// The high 12 bits of the 60-bit timestamp.
         time_high: u12,
+        /// The 4-bit version field (should be 1).
         version: u4,
+        /// The middle 16 bits of the 60-bit timestamp.
         time_mid: u16,
+        /// The low 32 bits of the 60-bit timestamp.
         time_low: u32,
 
+        /// The timestamp structure for V1 UUIDs.
         pub const Timestamp = struct {
+            /// The number of nanoseconds per tick (100ns intervals since 1582-10-15).
             pub const ns_per_tick = 100;
+            /// The nanosecond offset from the Gregorian epoch to the Unix epoch.
             pub const ns_unix_offset = greg_unix_offset * ns_per_tick;
+            /// The 60-bit timestamp in 100ns ticks since 1582-10-15.
             tick: u60,
+            /// The 14-bit clock sequence.
             seq: u14,
 
+            /// Get the current timestamp with clock sequence.
             pub fn now() Timestamp {
                 return AtomicClockSequence(Timestamp).System.next();
             }
         };
 
+        /// Create a V1 UUID from a timestamp and node ID.
         pub fn init(ts: Timestamp, node: u48) V1 {
             var self: V1 = undefined;
 
@@ -284,18 +360,22 @@ pub const Uuid = packed union {
             return self;
         }
 
+        /// Create a V1 UUID with the current timestamp and node ID.
         pub fn now(node: u48) V1 {
             return .init(.now(), node);
         }
 
+        /// Convert to the generic Uuid union type.
         pub fn toUuid(self: V1) Uuid {
             return .{ .v1 = self };
         }
 
+        /// Convert to a big-endian byte array.
         pub fn toBytes(self: V1) [16]u8 {
             return @bitCast(self);
         }
 
+        /// Convert to a native-endian u128.
         pub fn toNative(self: V1) u128 {
             return switch (native_endian) {
                 .little => self.toLittle(),
@@ -303,50 +383,62 @@ pub const Uuid = packed union {
             };
         }
 
+        /// Convert to a big-endian u128.
         pub fn toBig(self: V1) u128 {
             return @bitCast(self);
         }
 
+        /// Convert to a little-endian u128.
         pub fn toLittle(self: V1) u128 {
             return @byteSwap(@as(u128, @bitCast(self)));
         }
 
+        /// Format as the standard UUID string.
         pub fn toString(self: V1) [36]u8 {
             return self.toUuid().toString();
         }
 
+        /// Get a pointer to the underlying bytes.
         pub fn asBytes(self: *const V1) *const [16]u8 {
             return @ptrCast(self);
         }
 
+        /// Get a slice view of the underlying bytes.
         pub fn asSlice(self: V1) []const u8 {
             return self.asBytes();
         }
 
+        /// Test equality with another V1 UUID.
         pub fn eql(self: V1, other: V1) bool {
             return std.mem.eql(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Compare ordering with another V1 UUID.
         pub fn order(self: V1, other: V1) std.math.Order {
             return std.mem.order(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Extract the node ID field.
         pub fn getNode(self: V1) u48 {
             return self.getNative("node");
         }
 
+        /// Extract the clock sequence field.
         pub fn getClockSeq(self: V1) u14 {
             return self.getNative("clock_seq");
         }
 
+        /// Extract the variant field.
         pub fn getVariant(self: V1) Variant {
             return self.toUuid().getVariant();
         }
 
+        /// Extract the version field.
         pub fn getVersion(self: V1) Version {
             return self.toUuid().getVersion().?;
         }
 
+        /// Extract the 60-bit timestamp field.
         pub fn getTime(self: V1) u60 {
             const low = self.getNative("time_low");
             const mid = self.getNative("time_mid");
@@ -355,6 +447,7 @@ pub const Uuid = packed union {
             return (@as(u60, high) << 48) | (@as(u60, mid) << 32) | low;
         }
 
+        /// Format for std.fmt (delegates to toString).
         pub fn format(
             self: V1,
             comptime fmt: []const u8,
@@ -369,22 +462,33 @@ pub const Uuid = packed union {
         }
     };
 
+    /// Version 2: DCE Security UUID.
+    /// Reserved for DCE security, rarely used in practice.
+    ///
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-2
     pub const V2 = packed struct(u128) {
+        /// The low 62 bits of DCE data.
         low: u62,
+        /// The 2-bit variant field (should be 0b10).
         variant: u2,
+        /// The middle 12 bits of DCE data.
         mid: u12,
+        /// The 4-bit version field (should be 2).
         version: u4,
+        /// The high 48 bits of DCE data.
         high: u48,
 
+        /// Convert to the generic Uuid union type.
         pub fn toUuid(self: V2) Uuid {
             return .{ .v2 = self };
         }
 
+        /// Convert to a big-endian byte array.
         pub fn toBytes(self: V2) [16]u8 {
             return @bitCast(self);
         }
 
+        /// Convert to a native-endian u128.
         pub fn toNative(self: V2) u128 {
             return switch (native_endian) {
                 .little => self.toLittle(),
@@ -392,54 +496,67 @@ pub const Uuid = packed union {
             };
         }
 
+        /// Convert to a big-endian u128.
         pub fn toBig(self: V2) u128 {
             return @bitCast(self);
         }
 
+        /// Convert to a little-endian u128.
         pub fn toLittle(self: V2) u128 {
             return @byteSwap(@as(u128, @bitCast(self)));
         }
 
+        /// Format as the standard UUID string.
         pub fn toString(self: V2) [36]u8 {
             return self.toUuid().toString();
         }
 
+        /// Get a pointer to the underlying bytes.
         pub fn asBytes(self: *const V2) *const [16]u8 {
             return @ptrCast(self);
         }
 
+        /// Get a slice view of the underlying bytes.
         pub fn asSlice(self: V2) []const u8 {
             return self.asBytes();
         }
 
+        /// Test equality with another V2 UUID.
         pub fn eql(self: V2, other: V2) bool {
             return std.mem.eql(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Compare ordering with another V2 UUID.
         pub fn order(self: V2, other: V2) std.math.Order {
             return std.mem.order(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Extract the variant field.
         pub fn getVariant(self: V2) Variant {
             return self.toUuid().getVariant();
         }
 
+        /// Extract the version field.
         pub fn getVersion(self: V2) Version {
             return self.toUuid().getVersion().?;
         }
 
+        /// Extract the low 62 bits.
         pub fn getLow(self: V2) u62 {
             return self.getNative("low");
         }
 
+        /// Extract the middle 12 bits.
         pub fn getMid(self: V2) u12 {
             return self.getNative("mid");
         }
 
+        /// Extract the high 48 bits.
         pub fn getHigh(self: V2) u48 {
             return self.getNative("high");
         }
 
+        /// Format for std.fmt (delegates to toString).
         pub fn format(
             self: V2,
             comptime fmt: []const u8,
@@ -454,14 +571,23 @@ pub const Uuid = packed union {
         }
     };
 
+    /// Version 3: MD5 hash-based UUID.
+    /// Deterministic based on namespace UUID + name.
+    ///
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-3
     pub const V3 = packed struct(u128) {
+        /// The low 62 bits of the MD5 hash.
         md5_low: u62,
+        /// The 2-bit variant field (should be 0b10).
         variant: u2,
+        /// The middle 12 bits of the MD5 hash.
         md5_mid: u12,
+        /// The 4-bit version field (should be 3).
         version: u4,
+        /// The high 48 bits of the MD5 hash.
         md5_high: u48,
 
+        /// Create a V3 UUID from a namespace UUID and name.
         pub fn init(ns: Uuid, name: []const u8) V3 {
             var hash: [16]u8 = undefined;
 
@@ -483,14 +609,17 @@ pub const Uuid = packed union {
             return self;
         }
 
+        /// Convert to the generic Uuid union type.
         pub fn toUuid(self: V3) Uuid {
             return .{ .v3 = self };
         }
 
+        /// Convert to a big-endian byte array.
         pub fn toBytes(self: V3) [16]u8 {
             return @bitCast(self);
         }
 
+        /// Convert to a native-endian u128.
         pub fn toNative(self: V3) u128 {
             return switch (native_endian) {
                 .little => self.toLittle(),
@@ -498,42 +627,52 @@ pub const Uuid = packed union {
             };
         }
 
+        /// Convert to a big-endian u128.
         pub fn toBig(self: V3) u128 {
             return @bitCast(self);
         }
 
+        /// Convert to a little-endian u128.
         pub fn toLittle(self: V3) u128 {
             return @byteSwap(@as(u128, @bitCast(self)));
         }
 
+        /// Format as the standard UUID string.
         pub fn toString(self: V3) [36]u8 {
             return self.toUuid().toString();
         }
 
+        /// Get a pointer to the underlying bytes.
         pub fn asBytes(self: *const V3) *const [16]u8 {
             return @ptrCast(self);
         }
 
+        /// Get a slice view of the underlying bytes.
         pub fn asSlice(self: V3) []const u8 {
             return self.asBytes();
         }
 
+        /// Test equality with another V3 UUID.
         pub fn eql(self: V3, other: V3) bool {
             return std.mem.eql(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Compare ordering with another V3 UUID.
         pub fn order(self: V3, other: V3) std.math.Order {
             return std.mem.order(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Extract the variant field.
         pub fn getVariant(self: V3) Variant {
             return self.toUuid().getVariant();
         }
 
+        /// Extract the version field.
         pub fn getVersion(self: V3) Version {
             return self.toUuid().getVersion().?;
         }
 
+        /// Extract the 122 bits of MD5 hash data.
         pub fn getMd5(self: V3) u122 {
             const low = self.getNative("md5_low");
             const mid = self.getNative("md5_mid");
@@ -542,6 +681,7 @@ pub const Uuid = packed union {
             return (@as(u122, high) << 74) | (@as(u122, mid) << 62) | low;
         }
 
+        /// Format for std.fmt (delegates to toString).
         pub fn format(
             self: V3,
             comptime fmt: []const u8,
@@ -556,14 +696,23 @@ pub const Uuid = packed union {
         }
     };
 
+    /// Version 4: Random UUID.
+    /// Contains 122 bits of randomness, most commonly used.
+    ///
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-4
     pub const V4 = packed struct(u128) {
+        /// The low 62 bits of random data.
         random_c: u62,
+        /// The 2-bit variant field (should be 0b10).
         variant: u2,
+        /// The middle 12 bits of random data.
         random_b: u12,
+        /// The 4-bit version field (should be 4).
         version: u4,
+        /// The high 48 bits of random data.
         random_a: u48,
 
+        /// Create a V4 UUID with cryptographic random data.
         pub fn init() V4 {
             var self: V4 = undefined;
 
@@ -576,14 +725,17 @@ pub const Uuid = packed union {
             return self;
         }
 
+        /// Convert to the generic Uuid union type.
         pub fn toUuid(self: V4) Uuid {
             return .{ .v4 = self };
         }
 
+        /// Convert to a big-endian byte array.
         pub fn toBytes(self: V4) [16]u8 {
             return @bitCast(self);
         }
 
+        /// Convert to a native-endian u128.
         pub fn toNative(self: V4) u128 {
             return switch (native_endian) {
                 .little => self.toLittle(),
@@ -591,42 +743,52 @@ pub const Uuid = packed union {
             };
         }
 
+        /// Convert to a big-endian u128.
         pub fn toBig(self: V4) u128 {
             return @bitCast(self);
         }
 
+        /// Convert to a little-endian u128.
         pub fn toLittle(self: V4) u128 {
             return @byteSwap(@as(u128, @bitCast(self)));
         }
 
+        /// Format as the standard UUID string.
         pub fn toString(self: V4) [36]u8 {
             return self.toUuid().toString();
         }
 
+        /// Get a pointer to the underlying bytes.
         pub fn asBytes(self: *const V4) *const [16]u8 {
             return @ptrCast(self);
         }
 
+        /// Get a slice view of the underlying bytes.
         pub fn asSlice(self: V4) []const u8 {
             return self.asBytes();
         }
 
+        /// Test equality with another V4 UUID.
         pub fn eql(self: V4, other: V4) bool {
             return std.mem.eql(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Compare ordering with another V4 UUID.
         pub fn order(self: V4, other: V4) std.math.Order {
             return std.mem.order(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Extract the variant field.
         pub fn getVariant(self: V4) Variant {
             return self.toUuid().getVariant();
         }
 
+        /// Extract the version field.
         pub fn getVersion(self: V4) Version {
             return self.toUuid().getVersion().?;
         }
 
+        /// Extract the 122 bits of random data.
         pub fn getRandom(self: V4) u122 {
             const c = self.getNative("random_c");
             const b = self.getNative("random_b");
@@ -635,6 +797,7 @@ pub const Uuid = packed union {
             return (@as(u122, a) << 74) | (@as(u122, b) << 62) | c;
         }
 
+        /// Format for std.fmt (delegates to toString).
         pub fn format(
             self: V4,
             comptime fmt: []const u8,
@@ -649,14 +812,23 @@ pub const Uuid = packed union {
         }
     };
 
+    /// Version 5: SHA-1 hash-based UUID.
+    /// Deterministic based on namespace UUID + name, preferred over V3.
+    ///
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-5
     pub const V5 = packed struct(u128) {
+        /// The low 62 bits of the SHA-1 hash.
         sha1_low: u62,
+        /// The 2-bit variant field (should be 0b10).
         variant: u2,
+        /// The middle 12 bits of the SHA-1 hash.
         sha1_mid: u12,
+        /// The 4-bit version field (should be 5).
         version: u4,
+        /// The high 48 bits of the SHA-1 hash.
         sha1_high: u48,
 
+        /// Create a V5 UUID from a namespace UUID and name.
         pub fn init(ns: Uuid, name: []const u8) V5 {
             var hash: [20]u8 = undefined;
 
@@ -678,14 +850,17 @@ pub const Uuid = packed union {
             return self;
         }
 
+        /// Convert to the generic Uuid union type.
         pub fn toUuid(self: V5) Uuid {
             return .{ .v5 = self };
         }
 
+        /// Convert to a big-endian byte array.
         pub fn toBytes(self: V5) [16]u8 {
             return @bitCast(self);
         }
 
+        /// Convert to a native-endian u128.
         pub fn toNative(self: V5) u128 {
             return switch (native_endian) {
                 .little => self.toLittle(),
@@ -693,42 +868,52 @@ pub const Uuid = packed union {
             };
         }
 
+        /// Convert to a big-endian u128.
         pub fn toBig(self: V5) u128 {
             return @bitCast(self);
         }
 
+        /// Convert to a little-endian u128.
         pub fn toLittle(self: V5) u128 {
             return @byteSwap(@as(u128, @bitCast(self)));
         }
 
+        /// Format as the standard UUID string.
         pub fn toString(self: V5) [36]u8 {
             return self.toUuid().toString();
         }
 
+        /// Get a pointer to the underlying bytes.
         pub fn asBytes(self: *const V5) *const [16]u8 {
             return @ptrCast(self);
         }
 
+        /// Get a slice view of the underlying bytes.
         pub fn asSlice(self: V5) []const u8 {
             return self.asBytes();
         }
 
+        /// Test equality with another V5 UUID.
         pub fn eql(self: V5, other: V5) bool {
             return std.mem.eql(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Compare ordering with another V5 UUID.
         pub fn order(self: V5, other: V5) std.math.Order {
             return std.mem.order(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Extract the variant field.
         pub fn getVariant(self: V5) Variant {
             return self.toUuid().getVariant();
         }
 
+        /// Extract the version field.
         pub fn getVersion(self: V5) Version {
             return self.toUuid().getVersion().?;
         }
 
+        /// Extract the 122 bits of SHA-1 hash data.
         pub fn getSha1(self: V5) u122 {
             const low = self.getNative("sha1_low");
             const mid = self.getNative("sha1_mid");
@@ -737,6 +922,7 @@ pub const Uuid = packed union {
             return (@as(u122, high) << 74) | (@as(u122, mid) << 62) | low;
         }
 
+        /// Format for std.fmt (delegates to toString)
         pub fn format(
             self: V5,
             comptime fmt: []const u8,
@@ -751,27 +937,44 @@ pub const Uuid = packed union {
         }
     };
 
+    /// Version 6: Reordered time + node ID.
+    /// Time-ordered like V1 but with better sorting properties.
+    ///
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-6
     pub const V6 = packed struct(u128) {
+        /// The 48-bit node ID (typically a MAC address).
         node: u48,
+        /// The 14-bit clock sequence for collision avoidance.
         clock_seq: u14,
+        /// The 2-bit variant field (should be 0b10).
         variant: u2,
+        /// The low 12 bits of the 60-bit timestamp.
         time_low: u12,
+        /// The 4-bit version field (should be 6).
         version: u4,
+        /// The middle 16 bits of the 60-bit timestamp.
         time_mid: u16,
+        /// The high 32 bits of the 60-bit timestamp.
         time_high: u32,
 
+        /// The timestamp structure for V6 UUIDs.
         pub const Timestamp = struct {
+            /// The number of nanoseconds per tick (100ns intervals since 1582-10-15).
             pub const ns_per_tick = 100;
+            /// The nanosecond offset from the Gregorian epoch to the Unix epoch.
             pub const ns_unix_offset = greg_unix_offset * ns_per_tick;
+            /// The 60-bit timestamp in 100ns ticks since 1582-10-15.
             tick: u60,
+            /// The 14-bit clock sequence.
             seq: u14,
 
+            /// Get the current timestamp with clock sequence.
             pub fn now() Timestamp {
                 return AtomicClockSequence(Timestamp).System.next();
             }
         };
 
+        /// Create a V6 UUID from a timestamp and node ID.
         pub fn init(ts: Timestamp, node: u48) V6 {
             var self: V6 = undefined;
 
@@ -786,18 +989,22 @@ pub const Uuid = packed union {
             return self;
         }
 
+        /// Create a V6 UUID with the current timestamp and node ID.
         pub fn now(node: u48) V6 {
             return .init(.now(), node);
         }
 
+        /// Convert to the generic Uuid union type.
         pub fn toUuid(self: V6) Uuid {
             return .{ .v6 = self };
         }
 
+        /// Convert to a big-endian byte array.
         pub fn toBytes(self: V6) [16]u8 {
             return @bitCast(self);
         }
 
+        /// Convert to a native-endian u128.
         pub fn toNative(self: V6) u128 {
             return switch (native_endian) {
                 .little => self.toLittle(),
@@ -805,50 +1012,62 @@ pub const Uuid = packed union {
             };
         }
 
+        /// Convert to a big-endian u128.
         pub fn toBig(self: V6) u128 {
             return @bitCast(self);
         }
 
+        /// Convert to a little-endian u128.
         pub fn toLittle(self: V6) u128 {
             return @byteSwap(@as(u128, @bitCast(self)));
         }
 
+        /// Format as the standard UUID string.
         pub fn toString(self: V6) [36]u8 {
             return self.toUuid().toString();
         }
 
+        /// Get a pointer to the underlying bytes.
         pub fn asBytes(self: *const V6) *const [16]u8 {
             return @ptrCast(self);
         }
 
+        /// Get a slice view of the underlying bytes.
         pub fn asSlice(self: V6) []const u8 {
             return self.asBytes();
         }
 
+        /// Test equality with another V6 UUID.
         pub fn eql(self: V6, other: V6) bool {
             return std.mem.eql(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Compare ordering with another V6 UUID.
         pub fn order(self: V6, other: V6) std.math.Order {
             return std.mem.order(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Extract the node ID field.
         pub fn getNode(self: V6) u48 {
             return self.getNative("node");
         }
 
+        /// Extract the clock sequence field.
         pub fn getClockSeq(self: V6) u14 {
             return self.getNative("clock_seq");
         }
 
+        /// Extract the variant field.
         pub fn getVariant(self: V6) Variant {
             return self.toUuid().getVariant();
         }
 
+        /// Extract the version field.
         pub fn getVersion(self: V6) Version {
             return self.toUuid().getVersion().?;
         }
 
+        /// Extract the 60-bit timestamp field.
         pub fn getTime(self: V6) u60 {
             const low = self.getNative("time_low");
             const mid = self.getNative("time_mid");
@@ -857,6 +1076,7 @@ pub const Uuid = packed union {
             return (@as(u60, high) << 28) | (@as(u60, mid) << 12) | low;
         }
 
+        /// Format for std.fmt (delegates to toString)
         pub fn format(
             self: V6,
             comptime fmt: []const u8,
@@ -871,25 +1091,40 @@ pub const Uuid = packed union {
         }
     };
 
+    /// Version 7: Unix timestamp + random data.
+    /// Time-ordered with millisecond precision, good default choice.
+    ///
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-7
     pub const V7 = packed struct(u128) {
+        /// The low 62 bits of random data.
         rand_b: u62,
+        /// The 2-bit variant field (should be 0b10).
         variant: u2,
+        /// The high 12 bits of random data.
         rand_a: u12,
+        /// The 4-bit version field (should be 7).
         version: u4,
+        /// The 48-bit Unix timestamp in milliseconds.
         unix_ts_ms: u48,
 
+        /// The timestamp structure for V7 UUIDs.
         pub const Timestamp = struct {
+            /// The number of nanoseconds per tick (1ms intervals).
             pub const ns_per_tick = std.time.ns_per_ms;
+            /// The nanosecond offset from the Unix epoch (none needed).
             pub const ns_unix_offset = 0;
+            /// The 48-bit timestamp in milliseconds since the Unix epoch.
             tick: u48,
+            /// The 74-bit sequence for collision avoidance.
             seq: u74,
 
+            /// Get the current timestamp with clock sequence.
             pub fn now() Timestamp {
                 return AtomicClockSequence(Timestamp).System.next();
             }
         };
 
+        /// Create a V7 UUID from a timestamp.
         pub fn init(ts: Timestamp) V7 {
             var self: V7 = undefined;
 
@@ -902,18 +1137,22 @@ pub const Uuid = packed union {
             return self;
         }
 
+        /// Create a V7 UUID with the current timestamp.
         pub fn now() V7 {
             return .init(.now());
         }
 
+        /// Convert to the generic Uuid union type.
         pub fn toUuid(self: V7) Uuid {
             return .{ .v7 = self };
         }
 
+        /// Convert to a big-endian byte array.
         pub fn toBytes(self: V7) [16]u8 {
             return @bitCast(self);
         }
 
+        /// Convert to a native-endian u128.
         pub fn toNative(self: V7) u128 {
             return switch (native_endian) {
                 .little => self.toLittle(),
@@ -921,46 +1160,57 @@ pub const Uuid = packed union {
             };
         }
 
+        /// Convert to a big-endian u128.
         pub fn toBig(self: V7) u128 {
             return @bitCast(self);
         }
 
+        /// Convert to a little-endian u128.
         pub fn toLittle(self: V7) u128 {
             return @byteSwap(@as(u128, @bitCast(self)));
         }
 
+        /// Get a pointer to the underlying bytes.
         pub fn asBytes(self: *const V7) *const [16]u8 {
             return @ptrCast(self);
         }
 
+        /// Get a slice view of the underlying bytes.
         pub fn asSlice(self: V7) []const u8 {
             return self.asBytes();
         }
 
+        /// Format as the standard UUID string.
         pub fn toString(self: V7) [36]u8 {
             return self.toUuid().toString();
         }
 
+        /// Test equality with another V7 UUID.
         pub fn eql(self: V7, other: V7) bool {
             return std.mem.eql(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Compare ordering with another V7 UUID.
         pub fn order(self: V7, other: V7) std.math.Order {
             return std.mem.order(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Extract the Unix timestamp in milliseconds.
         pub fn getUnixMs(self: V7) u48 {
             return self.getNative("unix_ts_ms");
         }
 
+        /// Extract the variant field.
         pub fn getVariant(self: V7) Variant {
             return self.toUuid().getVariant();
         }
 
+        /// Extract the version field.
         pub fn getVersion(self: V7) Version {
             return self.toUuid().getVersion().?;
         }
 
+        /// Extract the 74 bits of random data.
         pub fn getRand(self: V7) u74 {
             const b = self.getNative("rand_b");
             const a = self.getNative("rand_a");
@@ -968,6 +1218,7 @@ pub const Uuid = packed union {
             return (@as(u74, a) << 62) | b;
         }
 
+        /// Format for std.fmt (delegates to toString)
         pub fn format(
             self: V7,
             comptime fmt: []const u8,
@@ -982,14 +1233,23 @@ pub const Uuid = packed union {
         }
     };
 
+    /// Version 8: Custom/experimental UUID.
+    /// Application-defined format, experimental use only.
+    ///
     /// https://www.rfc-editor.org/rfc/rfc9562.html#name-uuid-version-8
     pub const V8 = packed struct(u128) {
+        /// The low 62 bits of custom data.
         custom_c: u62,
+        /// The 2-bit variant field (should be 0b10).
         variant: u2,
+        /// The middle 12 bits of custom data.
         custom_b: u12,
+        /// The 4-bit version field (should be 8).
         version: u4,
+        /// The high 48 bits of custom data.
         custom_a: u48,
 
+        /// Create a V8 UUID from 122 bits of custom data.
         pub fn init(custom: u122) V8 {
             var self: V8 = undefined;
 
@@ -1002,14 +1262,17 @@ pub const Uuid = packed union {
             return self;
         }
 
+        /// Convert to the generic Uuid union type.
         pub fn toUuid(self: V8) Uuid {
             return .{ .v8 = self };
         }
 
+        /// Convert to a big-endian byte array.
         pub fn toBytes(self: V8) [16]u8 {
             return @bitCast(self);
         }
 
+        /// Convert to a native-endian u128.
         pub fn toNative(self: V8) u128 {
             return switch (native_endian) {
                 .little => self.toLittle(),
@@ -1017,42 +1280,52 @@ pub const Uuid = packed union {
             };
         }
 
+        /// Convert to a big-endian u128.
         pub fn toBig(self: V8) u128 {
             return @bitCast(self);
         }
 
+        /// Convert to a little-endian u128.
         pub fn toLittle(self: V8) u128 {
             return @byteSwap(@as(u128, @bitCast(self)));
         }
 
+        /// Format as the standard UUID string.
         pub fn toString(self: V8) [36]u8 {
             return self.toUuid().toString();
         }
 
+        /// Get a pointer to the underlying bytes.
         pub fn asBytes(self: *const V8) *const [16]u8 {
             return @ptrCast(self);
         }
 
+        /// Get a slice view of the underlying bytes.
         pub fn asSlice(self: V8) []const u8 {
             return self.asBytes();
         }
 
+        /// Test equality with another V8 UUID.
         pub fn eql(self: V8, other: V8) bool {
             return std.mem.eql(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Compare ordering with another V8 UUID.
         pub fn order(self: V8, other: V8) std.math.Order {
             return std.mem.order(u8, self.asBytes(), other.asBytes());
         }
 
+        /// Extract the variant field.
         pub fn getVariant(self: V8) Variant {
             return self.toUuid().getVariant();
         }
 
+        /// Extract the version field.
         pub fn getVersion(self: V8) Version {
             return self.toUuid().getVersion().?;
         }
 
+        /// Extract the 122 bits of custom data.
         pub fn getCustom(self: V8) u122 {
             const c = self.getNative("custom_c");
             const b = self.getNative("custom_b");
@@ -1061,6 +1334,7 @@ pub const Uuid = packed union {
             return (@as(u122, a) << 74) | (@as(u122, b) << 62) | c;
         }
 
+        /// Format for std.fmt (delegates to toString)
         pub fn format(
             self: V8,
             comptime fmt: []const u8,
@@ -1075,6 +1349,7 @@ pub const Uuid = packed union {
         }
     };
 
+    /// Format for std.fmt (delegates to toString)
     pub fn format(
         self: Uuid,
         comptime fmt: []const u8,
@@ -1088,6 +1363,7 @@ pub const Uuid = packed union {
         try writer.writeAll(&string);
     }
 
+    /// A clock abstraction for timestamp generation in time-based UUIDs.
     pub const Clock = struct {
         ptr: *anyopaque,
         nanoTimestampFn: *const fn (ptr: *anyopaque) i128,
@@ -1115,6 +1391,8 @@ pub const Uuid = packed union {
         }
     };
 
+    /// A single-threaded clock sequence generator for time-based UUIDs.
+    /// This handles clock sequence increments and duplicate timestamp detection.
     pub fn LocalClockSequence(comptime Timestamp: type) type {
         return struct {
             pub const Tick = @FieldType(Timestamp, "tick");
@@ -1156,6 +1434,8 @@ pub const Uuid = packed union {
         };
     }
 
+    /// A thread-safe clock sequence generator using atomic operations.
+    /// This is suitable for concurrent UUID generation across multiple threads.
     pub fn AtomicClockSequence(comptime Timestamp: type) type {
         return struct {
             pub const Tick = @FieldType(Timestamp, "tick");
