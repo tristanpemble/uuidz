@@ -149,6 +149,23 @@ In case you care about generating UUIDs faster than you can put them anywhere, t
 zig build bench
 ```
 
+On my MacBook Pro M4 Max, the results are:
+
+```
+Single-threaded comparison:
+  Local:  47619048 ops/sec (21 ns/op)
+  Atomic: 43478261 ops/sec (23 ns/op)
+  Overhead: 9.5%
+
+Multi-threaded performance:
+  2 threads: 22727273 ops/sec (44 ns/op) - 1.9x slower
+  4 threads: 9708738 ops/sec (103 ns/op) - 4.5x slower
+  8 threads: 5952381 ops/sec (168 ns/op) - 7.3x slower
+
+Stress test:
+  32 threads with contention: 1988072 ops/sec (503 ns/op)
+```
+
 ## License
 
 MIT
