@@ -39,13 +39,15 @@ pub fn main() !void {
     std.debug.print("nil: {}\n", .{Uuid.nil});
     std.debug.print("max: {}\n", .{Uuid.max});
 
+    // Fast clock sequence
+    const fast: Uuid.V7 = .init(.fast());
+    std.debug.print("v7 fast: {}\n", .{fast});
+
     // Customize clock sequence
-    var rng = std.Random.DefaultPrng.init(0);
-    var clock_seq = Uuid.LocalClockSequence(Uuid.V7.Timestamp){
+    var clock_seq = Uuid.FastClockSequence(Uuid.V7.Timestamp){
         .clock = .zero,
-        .rand = rng.random(),
     };
 
-    const v7_prng: Uuid.V7 = .init(clock_seq.next());
-    std.debug.print("v7 Zero/PRNG: {}\n", .{v7_prng});
+    const custom: Uuid.V7 = .init(clock_seq.next());
+    std.debug.print("v7 custom: {}\n", .{custom});
 }

@@ -10,7 +10,7 @@ An [RFC 9562](https://datatracker.ietf.org/doc/html/rfc9562) compliant UUID impl
 - **Packed structs**: All UUID types can cast directly to integers and work with raw bytes without overhead
 - **Compliant**: Generates UUIDs with correct bit layouts, version/variant fields, and timestamp formats
 - **Non-compliant**: Represent UUIDs that don't follow RFC 9562 for interoperability
-- **Flexible clocks**: Configurable clock sources for time-based UUIDs with atomic and local implementations
+- **Flexible clocks**: Configurable clock sources for time-based UUIDs with multi and single-threaded implementations
 - **Zero dependencies**: Uses only Zig's standard library
 
 The design is heavily influenced by the Rust [uuid](https://github.com/uuid-rs/uuid) crate, with some Zig specific flavoring.
@@ -91,27 +91,43 @@ as per RFC9562.
 
 We provide two ClockSequence implementations, but you are free to write your own:
 
-- `AtomicClockSequence`: The default, a lock-free, thread-safe implementation.
-- `LocalClockSequence`: A single-threaded implementation for maximum throughput.
+- `SafeClockSequence`: The default, slower, thread-safe, unpredictable sequence for maximum safety.
+- `FastClockSequence`: Faster, single-threaded, predictable sequence for maximum throughput.
 
-Both implementations accept a `Clock`, so that you can customize their behavior. We provide two clocks:
+They both ensure monotonicity. The trade-off is between speed and security. Both implementations accept a `Clock`,
+so that you can customize their behavior. We provide two clocks:
 
 - `Clock.system`: Uses the system clock to generate timestamps.
 - `Clock.zero`: Always returns zero.
 
-They also accept a `std.Random`, allowing you to use a custom random number generator.
+The `SafeClockSequence` also accept a `std.Random`, allowing you to use a custom random number generator, or reduce its
+entropy for increased performance. It defaults to `std.crypto.random`.
 
-For example, to use a single-threaded `LocalClockSequence`, that only outputs zero, with a PRNG, to generate a v7 UUID:
+For example, to use a `SafeClockSequence`, that only outputs a zero timestamp:
 
 ```zig
-var rng = std.Random.DefaultPrng.init(0);
-var clock_seq = Uuid.LocalClockSequence(Uuid.V7.Timestamp){
+var clock_seq = Uuid.SafeClockSequence(Uuid.V7.Timestamp){
     .clock = .zero,
-    .rand = rng.random(),
 };
 
 const uuid: Uuid.V7 = .init(clock_seq.next());
 ```
+
+### SafeClockSequence
+
+The current implementation of `SafeClockSequence` was coded for correctness (as far as I can verify it), and not
+performance. I am not an expert in lockless concurrent algorithms. My hope is that someone more capable may provide
+a faster implementation in the future. In the end, it is more than sufficiently performant for the most typical usecases.
+
+The algorithm works like this:
+
+- Get the current timestamp.
+- If the timestamp increased monotonically:
+  - Generate a new cryptographically secure random sequence value.
+  - If the sequence increment overflowed, wait for the next tick.
+- If the timestamp did not increase monotonically, replace the sequence with a new cryptographically secure random value.
+
+This all occurs in an atomic compare-and-swap loop until the we obtain a unique timestamp and sequence counter.
 
 ### Custom Clocks
 
@@ -150,21 +166,28 @@ zig build bench
 On my MacBook Pro M4 Max, the results are:
 
 ```
-Single-threaded comparison:
-  Local:  47619048 ops/sec (21 ns/op)
-  Atomic: 43478261 ops/sec (23 ns/op)
-  Overhead: 9.5%
-
-Multi-threaded performance:
-  2 threads: 21739130 ops/sec (46 ns/op) - 2.0x slower
-  4 threads: 9900990 ops/sec (101 ns/op) - 4.4x slower
-  8 threads: 5681818 ops/sec (176 ns/op) - 7.7x slower
-
-Stress test:
-  32 threads with contention: 2024291 ops/sec (494 ns/op)
-
-Parsing benchmark:
-  Parse: 76923077 ops/sec (13 ns/op)
+benchmark        n  runs        total     avg ±     σ   min ...   max     p75    p99   p995
+-------------------------------------------------------------------------------------------
+Uuid.parse       1  100000      2.0us    20ns ±   6ns  18ns ...  81ns    19ns   81ns   81ns
+Uuid.toString    1  100000    434.0ns     4ns ±   0ns   4ns ...   6ns     5ns    6ns    6ns
+Uuid.V1 fast     1  100000      2.5us    24ns ±   1ns  24ns ...  32ns    25ns   32ns   32ns
+Uuid.V1 safe     1  100000     24.5us   244ns ±   6ns 232ns ... 260ns   250ns  260ns  260ns
+Uuid.V1 safe     2  200000     40.9us   408ns ±  12ns 379ns ... 441ns   417ns  441ns  441ns
+Uuid.V1 safe     4  400000     39.0us   390ns ±  20ns 368ns ... 499ns   393ns  499ns  499ns
+Uuid.V1 safe     8  800000     47.0us   469ns ±  21ns 424ns ... 523ns   488ns  523ns  523ns
+Uuid.V3          1  100000    636.0ns     6ns ±   0ns   6ns ...   7ns     7ns    7ns    7ns
+Uuid.V4          1  100000      8.0us    80ns ±   1ns  78ns ...  95ns    80ns   95ns   95ns
+Uuid.V5          1  100000    621.0ns     6ns ±   0ns   6ns ...   8ns     6ns    8ns    8ns
+Uuid.V6 fast     1  100000      2.5us    25ns ±   1ns  25ns ...  31ns    25ns   31ns   31ns
+Uuid.V6 safe     1  100000     24.7us   246ns ±   6ns 235ns ... 270ns   250ns  270ns  270ns
+Uuid.V6 safe     2  200000     40.5us   404ns ±  11ns 377ns ... 438ns   413ns  438ns  438ns
+Uuid.V6 safe     4  400000     38.7us   387ns ±  16ns 368ns ... 501ns   390ns  501ns  501ns
+Uuid.V6 safe     8  800000     46.7us   467ns ±  23ns 427ns ... 517ns   484ns  517ns  517ns
+Uuid.V7 fast     1  100000      2.4us    24ns ±   1ns  23ns ...  30ns    24ns   30ns   30ns
+Uuid.V7 safe     1  100000      5.8us    57ns ±   2ns  57ns ...  83ns    57ns   83ns   83ns
+Uuid.V7 safe     2  200000     14.4us   144ns ±   8ns  96ns ... 166ns   149ns  166ns  166ns
+Uuid.V7 safe     4  400000     19.0us   190ns ±   9ns 176ns ... 231ns   192ns  231ns  231ns
+Uuid.V7 safe     8  800000     20.0us   199ns ±   8ns 178ns ... 221ns   207ns  221ns  221ns
 ```
 
 ## License
