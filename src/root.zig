@@ -1428,24 +1428,27 @@ pub const Uuid = packed union {
             };
 
             clock: Clock,
-            last: Tick = 0,
-            debt: Tick = 0,
+            last_tick: Tick = 0,
+            acc: Tick = 0,
             seq: Seq = 0,
 
             pub fn next(self: *@This()) Timestamp {
-                const current_tick = self.tickTimestamp();
-                self.debt -|= current_tick -| self.last;
+                const actual_tick = self.tickTimestamp();
 
-                const debt_tick = self.last + self.debt;
+                const delta = actual_tick -| self.last_tick;
+                self.acc -|= delta;
 
-                if (current_tick > debt_tick) {
-                    self.last = current_tick;
-                    self.debt = 0;
+                const acc_tick = self.last_tick + self.acc;
+                const acc_seq = self.seq;
+
+                if (actual_tick > acc_tick) {
+                    self.last_tick = actual_tick;
+                    self.acc = 0;
                     self.seq = 0;
                 } else {
                     const result = @addWithOverflow(self.seq, 1);
                     if (result[1] == 1) {
-                        self.debt += 1;
+                        self.acc += 1;
                         self.seq = 0;
                     } else {
                         self.seq = result[0];
@@ -1453,8 +1456,8 @@ pub const Uuid = packed union {
                 }
 
                 return .{
-                    .tick = debt_tick,
-                    .seq = self.seq,
+                    .tick = acc_tick,
+                    .seq = acc_seq,
                 };
             }
 
@@ -2034,23 +2037,48 @@ test "clock sequence randomization" {
     try std.testing.expect(has_different_sequences);
 }
 
-test "single-threaded clock sequence rollover" {
-    // Test that single-threaded clock sequence increments when generating timestamps at the same tick
-    inline for ([_]type{ Uuid.V1.Timestamp, Uuid.V6.Timestamp, Uuid.V7.Timestamp }) |Timestamp| {
-        var seq = Uuid.FastClockSequence(Timestamp).Zero;
+test "fast clock accumulation" {
+    var seq = Uuid.FastClockSequence(struct {
+        pub const ns_per_tick = 1;
+        pub const ns_unix_offset = 0;
+        tick: u8,
+        seq: u1,
+    }).Zero;
 
-        const ts1 = seq.next();
-        const ts2 = seq.next();
-        const ts3 = seq.next();
+    try std.testing.expectEqual(0, seq.last_tick);
+    try std.testing.expectEqual(0, seq.acc);
+    try std.testing.expectEqual(0, seq.seq);
+    var ts = seq.next();
+    try std.testing.expectEqual(0, ts.tick);
+    try std.testing.expectEqual(0, ts.seq);
 
-        // For zero clock, all timestamps should have the same tick (0)
-        try std.testing.expectEqual(ts1.tick, ts2.tick);
-        try std.testing.expectEqual(ts2.tick, ts3.tick);
+    try std.testing.expectEqual(0, seq.last_tick);
+    try std.testing.expectEqual(0, seq.acc);
+    try std.testing.expectEqual(1, seq.seq);
+    ts = seq.next();
+    try std.testing.expectEqual(0, ts.tick);
+    try std.testing.expectEqual(1, ts.seq);
 
-        // FastClockSequence increments sequence by 1 for same tick
-        try std.testing.expectEqual(ts1.seq + 1, ts2.seq);
-        try std.testing.expectEqual(ts2.seq + 1, ts3.seq);
-    }
+    try std.testing.expectEqual(0, seq.last_tick);
+    try std.testing.expectEqual(1, seq.acc);
+    try std.testing.expectEqual(0, seq.seq);
+    ts = seq.next();
+    try std.testing.expectEqual(1, ts.tick);
+    try std.testing.expectEqual(0, ts.seq);
+
+    try std.testing.expectEqual(0, seq.last_tick);
+    try std.testing.expectEqual(1, seq.acc);
+    try std.testing.expectEqual(1, seq.seq);
+    ts = seq.next();
+    try std.testing.expectEqual(1, ts.tick);
+    try std.testing.expectEqual(1, ts.seq);
+
+    try std.testing.expectEqual(0, seq.last_tick);
+    try std.testing.expectEqual(2, seq.acc);
+    try std.testing.expectEqual(0, seq.seq);
+    ts = seq.next();
+    try std.testing.expectEqual(2, ts.tick);
+    try std.testing.expectEqual(0, ts.seq);
 }
 
 test "single-threaded clock sequence deterministic behavior" {
@@ -2070,10 +2098,10 @@ test "single-threaded clock sequence deterministic behavior" {
     try std.testing.expectEqual(ts1.seq + 1, ts2.seq);
     try std.testing.expectEqual(ts2.seq + 1, ts3.seq);
 
-    // Test that sequence starts from 1 for Zero clock (0 tick never > 0 last, so increments)
+    // Test that sequence starts from 0 for Zero clock
     var fresh_seq = Uuid.FastClockSequence(Uuid.V7.Timestamp).Zero;
     const first_ts = fresh_seq.next();
-    try std.testing.expectEqual(@as(@TypeOf(first_ts.seq), 1), first_ts.seq);
+    try std.testing.expectEqual(0, first_ts.seq);
 }
 
 test "clock sequence behavior with system clock" {
