@@ -1,15 +1,12 @@
 const builtin = @import("builtin");
 const std = @import("std");
 
-const Allocator = std.mem.Allocator;
 const Random = std.Random;
 const Md5 = std.crypto.hash.Md5;
 const Sha1 = std.crypto.hash.Sha1;
 
 const native_endian = builtin.target.cpu.arch.endian();
 const rand = std.crypto.random;
-
-const StorageInt = if (native_endian == .big) u128 else [16]u8;
 
 const greg_unix_offset = 0x01B21DD213814000;
 
