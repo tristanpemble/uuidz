@@ -122,14 +122,19 @@ pub const Uuid = packed union {
 
     // https://www.rfc-editor.org/rfc/rfc9562.html#name-version-field
     pub fn getVersion(self: Uuid) ?Version {
-        // Versions are only meaningful and specified on RFC9562 compliant UUIDs.
-        if (self.getVariant() != .rfc9562) return null;
-
         const bytes = @as([16]u8, @bitCast(self));
         const value = std.mem.readPackedInt(u4, &bytes, 76, .big);
 
+        // Versions are only meaningful and specified on RFC9562 compliant UUIDs.
+        if (self.getVariant() != .rfc9562) {
+            return switch (value) {
+                0 => if (self.isNil()) .nil else null,
+                15 => if (self.isMax()) .max else null,
+                else => null,
+            };
+        }
+
         return switch (value) {
-            0 => .nil,
             1 => .v1,
             2 => .v2,
             3 => .v3,
@@ -138,7 +143,6 @@ pub const Uuid = packed union {
             6 => .v6,
             7 => .v7,
             8 => .v8,
-            15 => .max,
             else => null,
         };
     }
@@ -417,7 +421,7 @@ pub const Uuid = packed union {
 
             writeField(V3, "md5_low", &self, @as(u62, @truncate(md5)));
             writeField(V3, "variant", &self, 0b10);
-            writeField(V3, "md5_mid", &self, @as(u12, @truncate(md5 >> 68)));
+            writeField(V3, "md5_mid", &self, @as(u12, @truncate(md5 >> 64)));
             writeField(V3, "version", &self, 3);
             writeField(V3, "md5_high", &self, @as(u48, @truncate(md5 >> 80)));
 
@@ -604,7 +608,7 @@ pub const Uuid = packed union {
 
             writeField(V5, "sha1_low", &self, @as(u62, @truncate(sha1)));
             writeField(V5, "variant", &self, 0b10);
-            writeField(V5, "sha1_mid", &self, @as(u12, @truncate(sha1 >> 68)));
+            writeField(V5, "sha1_mid", &self, @as(u12, @truncate(sha1 >> 64)));
             writeField(V5, "version", &self, 5);
             writeField(V5, "sha1_high", &self, @as(u48, @truncate(sha1 >> 80)));
 
@@ -1083,114 +1087,508 @@ pub fn ClockSequence(comptime Timestamp: type) type {
 
 const test_allocator = std.testing.allocator;
 
-test "nil" {
-    const uuid1 = Uuid.Nil;
-    const uuid2 = Uuid{ .nil = .nil };
-    const uuid3 = Uuid.fromNative(0);
+test "RFC9562 Test Vector A.1" {
+    const uuid = Uuid.fromNative(0xC232AB00_9414_11EC_B3C8_9F6BDECED846);
+    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    defer test_allocator.free(formatted);
 
-    try std.testing.expect(uuid1.eql(uuid2));
-    try std.testing.expect(uuid1.eql(uuid3));
-    try std.testing.expect(uuid2.eql(uuid3));
+    try std.testing.expectEqualStrings("c232ab00-9414-11ec-b3c8-9f6bdeced846", formatted);
+    try std.testing.expectEqual(.rfc9562, uuid.getVariant());
+    try std.testing.expectEqual(.v1, uuid.getVersion().?);
+
+    try std.testing.expectEqual(0xC232AB00, uuid.v1.getNative("time_low"));
+    try std.testing.expectEqual(0x9414, uuid.v1.getNative("time_mid"));
+    try std.testing.expectEqual(0x1, uuid.v1.getNative("version"));
+    try std.testing.expectEqual(0x1EC, uuid.v1.getNative("time_high"));
+    try std.testing.expectEqual(0b10, uuid.v1.getNative("variant"));
+    try std.testing.expectEqual(0x33C8, uuid.v1.getNative("clock_seq"));
+    try std.testing.expectEqual(0x9F6BDECED846, uuid.v1.getNative("node"));
 }
 
-test "max" {
-    const uuid1 = Uuid.Max;
-    const uuid2 = Uuid{ .max = .max };
-    const uuid3 = Uuid.fromNative(std.math.maxInt(u128));
+test "RFC9562 Test Vector A.2" {
+    const ns = Uuid.fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
+    const uuid = Uuid{ .v3 = .init(ns, "www.example.com") };
 
-    try std.testing.expect(uuid1.eql(uuid2));
-    try std.testing.expect(uuid1.eql(uuid3));
-    try std.testing.expect(uuid2.eql(uuid3));
+    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    defer test_allocator.free(formatted);
+
+    try std.testing.expectEqualStrings("5df41881-3aed-3515-88a7-2f4a814cf09e", formatted);
+    try std.testing.expectEqual(.rfc9562, uuid.getVariant());
+    try std.testing.expectEqual(.v3, uuid.getVersion().?);
+
+    try std.testing.expectEqual(0x5df418813aed, uuid.v3.getNative("md5_high"));
+    try std.testing.expectEqual(0x3, uuid.v3.getNative("version"));
+    try std.testing.expectEqual(0x515, uuid.v3.getNative("md5_mid"));
+    try std.testing.expectEqual(0b10, uuid.v3.getNative("variant"));
+    try std.testing.expectEqual(0x08a72f4a814cf09e, uuid.v3.getNative("md5_low"));
 }
 
-test "v1" {
-    const ts = Uuid.V1.Timestamp.now();
-    const uuid = Uuid.V1.init(ts, 69420);
+test "RFC9562 Test Vector A.3" {
+    const uuid = Uuid.fromNative(0x919108f7_52d1_4320_9bac_f847db4148a8);
+    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    defer test_allocator.free(formatted);
 
-    try std.testing.expectEqual(uuid.getVersion(), .v1);
-    try std.testing.expectEqual(uuid.getVariant(), .rfc9562);
-    try std.testing.expectEqual(uuid.getTime(), ts.tick);
-    try std.testing.expectEqual(uuid.getClockSeq(), ts.seq);
-    try std.testing.expectEqual(uuid.getNode(), 69420);
+    try std.testing.expectEqualStrings("919108f7-52d1-4320-9bac-f847db4148a8", formatted);
+    try std.testing.expectEqual(.rfc9562, uuid.getVariant());
+    try std.testing.expectEqual(.v4, uuid.getVersion().?);
+
+    try std.testing.expectEqual(0x919108f752d1, uuid.v4.getNative("random_a"));
+    try std.testing.expectEqual(0x4, uuid.v4.getNative("version"));
+    try std.testing.expectEqual(0x320, uuid.v4.getNative("random_b"));
+    try std.testing.expectEqual(0b10, uuid.v4.getNative("variant"));
+    try std.testing.expectEqual(0x1bacf847db4148a8, uuid.v4.getNative("random_c"));
 }
 
-test "v3" {
-    const uuid = Uuid.V3.init(Uuid.namespace.dns, "example.com");
+test "RFC9562 Test Vector A.4" {
+    const ns = Uuid.fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
+    const uuid = Uuid{ .v5 = .init(ns, "www.example.com") };
 
-    try std.testing.expectEqual(uuid.getVersion(), .v3);
-    try std.testing.expectEqual(uuid.getVariant(), .rfc9562);
+    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    defer test_allocator.free(formatted);
+
+    try std.testing.expectEqualStrings("2ed6657d-e927-568b-95e1-2665a8aea6a2", formatted);
+    try std.testing.expectEqual(.rfc9562, uuid.getVariant());
+    try std.testing.expectEqual(.v5, uuid.getVersion().?);
+
+    try std.testing.expectEqual(0x2ed6657de927, uuid.v5.getNative("sha1_high"));
+    try std.testing.expectEqual(0x5, uuid.v5.getNative("version"));
+    try std.testing.expectEqual(0x68b, uuid.v5.getNative("sha1_mid"));
+    try std.testing.expectEqual(0b10, uuid.v5.getNative("variant"));
+    try std.testing.expectEqual(0x15e12665a8aea6a2, uuid.v5.getNative("sha1_low"));
 }
 
-test "v4" {
-    const uuid = Uuid.V4.init();
+test "RFC9562 Test Vector A.5" {
+    const uuid = Uuid.fromNative(0x1EC9414C_232A_6B00_B3C8_9F6BDECED846);
+    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    defer test_allocator.free(formatted);
 
-    try std.testing.expectEqual(uuid.getVersion(), .v4);
-    try std.testing.expectEqual(uuid.getVariant(), .rfc9562);
+    try std.testing.expectEqualStrings("1ec9414c-232a-6b00-b3c8-9f6bdeced846", formatted);
+    try std.testing.expectEqual(.rfc9562, uuid.getVariant());
+    try std.testing.expectEqual(.v6, uuid.getVersion().?);
+
+    try std.testing.expectEqual(0x1EC9414C, uuid.v6.getNative("time_high"));
+    try std.testing.expectEqual(0x232A, uuid.v6.getNative("time_mid"));
+    try std.testing.expectEqual(0x6, uuid.v6.getNative("version"));
+    try std.testing.expectEqual(0xB00, uuid.v6.getNative("time_low"));
+    try std.testing.expectEqual(0b10, uuid.v6.getNative("variant"));
+    try std.testing.expectEqual(0x33C8, uuid.v6.getNative("clock_seq"));
+    try std.testing.expectEqual(0x9F6BDECED846, uuid.v6.getNative("node"));
 }
 
-test "v5" {
-    const uuid = Uuid.V5.init(Uuid.namespace.dns, "example.com");
+test "RFC9562 Test Vector A.6" {
+    const uuid = Uuid.fromNative(0x017F22E2_79B0_7CC3_98C4_DC0C0C07398F);
+    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    defer test_allocator.free(formatted);
 
-    try std.testing.expectEqual(uuid.getVersion(), .v5);
-    try std.testing.expectEqual(uuid.getVariant(), .rfc9562);
+    try std.testing.expectEqualStrings("017f22e2-79b0-7cc3-98c4-dc0c0c07398f", formatted);
+    try std.testing.expectEqual(.rfc9562, uuid.getVariant());
+    try std.testing.expectEqual(.v7, uuid.getVersion().?);
+
+    try std.testing.expectEqual(0x017F22E279B0, uuid.v7.getNative("unix_ts_ms"));
+    try std.testing.expectEqual(0x7, uuid.v7.getNative("version"));
+    try std.testing.expectEqual(0xCC3, uuid.v7.getNative("rand_a"));
+    try std.testing.expectEqual(0b10, uuid.v7.getNative("variant"));
+    try std.testing.expectEqual(0x18C4DC0C0C07398F, uuid.v7.getNative("rand_b"));
 }
 
-test "v6" {
-    const ts = Uuid.V6.Timestamp.now();
-    const uuid = Uuid.V6.init(ts, 69420);
+test "RFC9562 Test Vector B.1" {
+    const uuid = Uuid.fromNative(0x2489E9AD_2EE2_8E00_8EC9_32D5F69181C0);
+    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    defer test_allocator.free(formatted);
 
-    try std.testing.expectEqual(uuid.getVersion(), .v6);
-    try std.testing.expectEqual(uuid.getVariant(), .rfc9562);
-    try std.testing.expectEqual(uuid.getTime(), ts.tick);
-    try std.testing.expectEqual(uuid.getClockSeq(), ts.seq);
-    try std.testing.expectEqual(uuid.getNode(), 69420);
+    try std.testing.expectEqualStrings("2489e9ad-2ee2-8e00-8ec9-32d5f69181c0", formatted);
+    try std.testing.expectEqual(.rfc9562, uuid.getVariant());
+    try std.testing.expectEqual(.v8, uuid.getVersion().?);
+
+    try std.testing.expectEqual(0x2489E9AD2EE2, uuid.v8.getNative("custom_a"));
+    try std.testing.expectEqual(0x8, uuid.v8.getNative("version"));
+    try std.testing.expectEqual(0xE00, uuid.v8.getNative("custom_b"));
+    try std.testing.expectEqual(0b10, uuid.v8.getNative("variant"));
+    try std.testing.expectEqual(0x0EC932D5F69181C0, uuid.v8.getNative("custom_c"));
 }
 
-test "v7" {
-    const ts = Uuid.V7.Timestamp.now();
-    const uuid = Uuid.V7.init(ts);
+test "RFC9562 Test Vector B.2" {
+    const uuid = Uuid.fromNative(0x5c146b14_3c52_8afd_938a_375d0df1fbf6);
+    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    defer test_allocator.free(formatted);
 
-    try std.testing.expectEqual(uuid.getVersion(), .v7);
-    try std.testing.expectEqual(uuid.getVariant(), .rfc9562);
-    try std.testing.expectEqual(uuid.getUnixMs(), ts.tick);
-    try std.testing.expectEqual(uuid.getRand(), ts.seq);
+    try std.testing.expectEqualStrings("5c146b14-3c52-8afd-938a-375d0df1fbf6", formatted);
+    try std.testing.expectEqual(.rfc9562, uuid.getVariant());
+    try std.testing.expectEqual(.v8, uuid.getVersion().?);
+
+    try std.testing.expectEqual(0x5c146b143c52, uuid.v8.getNative("custom_a"));
+    try std.testing.expectEqual(0x8, uuid.v8.getNative("version"));
+    try std.testing.expectEqual(0xafd, uuid.v8.getNative("custom_b"));
+    try std.testing.expectEqual(0b10, uuid.v8.getNative("variant"));
+    try std.testing.expectEqual(0x138a375d0df1fbf6, uuid.v8.getNative("custom_c"));
 }
 
-test "v8" {
-    const custom = 0x123456789ABCDEF0123456789ABCDE;
-    const uuid = Uuid.V8.init(custom);
+test "nil and max special values" {
+    // Test nil UUID
+    const nil1 = Uuid.Nil;
+    const nil2 = Uuid{ .nil = .nil };
+    const nil3 = Uuid.fromNative(0);
 
-    try std.testing.expectEqual(uuid.getVersion(), .v8);
-    try std.testing.expectEqual(uuid.getVariant(), .rfc9562);
-    try std.testing.expectEqual(uuid.getCustom(), custom);
+    try std.testing.expect(nil1.eql(nil2));
+    try std.testing.expect(nil1.eql(nil3));
+    try std.testing.expect(nil1.isNil());
+    try std.testing.expect(!nil1.isMax());
+    try std.testing.expectEqual(.nil, nil1.getVersion());
+
+    // Test max UUID
+    const max1 = Uuid.Max;
+    const max2 = Uuid{ .max = .max };
+    const max3 = Uuid.fromNative(std.math.maxInt(u128));
+
+    try std.testing.expect(max1.eql(max2));
+    try std.testing.expect(max1.eql(max3));
+    try std.testing.expect(max1.isMax());
+    try std.testing.expect(!max1.isNil());
+    try std.testing.expectEqual(.max, max1.getVersion());
+
+    // Test ordering
+    try std.testing.expectEqual(.lt, nil1.order(max1));
+    try std.testing.expectEqual(.gt, max1.order(nil1));
 }
 
-test "equal" {
+test "equality and formatting" {
     const uuid1 = Uuid.fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
     const uuid2 = Uuid.fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
     const uuid3 = Uuid.fromNative(0xDEADBEEF_DEAD_BEEF_DEAD_BEEFDEADBEEF);
 
+    // Test equality
     try std.testing.expect(uuid1.eql(uuid2));
-    try std.testing.expect(uuid2.eql(uuid1));
     try std.testing.expect(!uuid1.eql(uuid3));
-    try std.testing.expect(!uuid2.eql(uuid3));
-    try std.testing.expect(!uuid3.eql(uuid1));
-    try std.testing.expect(!uuid3.eql(uuid2));
+
+    // Test formatting
+    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid1});
+    defer test_allocator.free(formatted);
+    try std.testing.expectEqualStrings("6ba7b810-9dad-11d1-80b4-00c04fd430c8", formatted);
 }
 
-test "order" {
-    const one = Uuid.V7.init(.now());
-    const two = Uuid.V7.init(.now());
+test "version field compliance" {
+    inline for ([_]type{ Uuid.V1, Uuid.V2, Uuid.V3, Uuid.V4, Uuid.V5, Uuid.V6, Uuid.V7, Uuid.V8 }, 1..) |V, version_number| {
+        if (version_number == 2) continue;
 
-    try std.testing.expect(one.order(two) == .lt);
-    try std.testing.expect(two.order(one) == .gt);
-    try std.testing.expect(one.order(one) == .eq);
+        const uuid = switch (V) {
+            Uuid.V1 => V.now(0x123456789ABC),
+            Uuid.V2 => unreachable,
+            Uuid.V3 => V.init(Uuid.namespace.dns, "test"),
+            Uuid.V4 => V.init(),
+            Uuid.V5 => V.init(Uuid.namespace.dns, "test"),
+            Uuid.V6 => V.now(0x123456789ABC),
+            Uuid.V7 => V.now(),
+            Uuid.V8 => V.init(0x123456789ABCDEF0123456789ABCDE),
+            else => unreachable,
+        };
+
+        try std.testing.expectEqual(@as(u8, version_number), @intFromEnum(uuid.getVersion()));
+        try std.testing.expectEqual(Uuid.Variant.rfc9562, uuid.getVariant());
+    }
 }
 
-test "format" {
-    const uuid = Uuid.fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
-    const actual = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
-    defer test_allocator.free(actual);
+test "variant field compliance" {
+    // Test all variant patterns according to RFC 9562:
+    // https://www.rfc-editor.org/rfc/rfc9562.html#name-variant-field
+    const test_cases = [_]struct { byte: u8, expected: Uuid.Variant }{
+        .{ .byte = 0b00000000, .expected = .ncs },
+        .{ .byte = 0b01111111, .expected = .ncs },
+        .{ .byte = 0b10000000, .expected = .rfc9562 },
+        .{ .byte = 0b10111111, .expected = .rfc9562 },
+        .{ .byte = 0b11000000, .expected = .microsoft },
+        .{ .byte = 0b11011111, .expected = .microsoft },
+        .{ .byte = 0b11100000, .expected = .future },
+        .{ .byte = 0b11101111, .expected = .future },
+        .{ .byte = 0b11111111, .expected = .future },
+    };
 
-    try std.testing.expectEqualStrings("6ba7b810-9dad-11d1-80b4-00c04fd430c8", actual);
+    inline for (test_cases) |case| {
+        var bytes = [_]u8{0} ** 16;
+        bytes[8] = case.byte;
+
+        const uuid = Uuid.fromBytes(bytes);
+
+        try std.testing.expectEqual(case.expected, uuid.getVariant());
+    }
+}
+
+test "endianness consistency" {
+    const int: u128 = 0x0123456789ABCDEF_FEDCBA9876543210;
+
+    const native = Uuid.fromNative(int);
+    const big = Uuid.fromBig(int);
+    const little = Uuid.fromLittle(int);
+
+    // Round-trip tests
+    try std.testing.expectEqual(int, native.toNative());
+    try std.testing.expectEqual(int, big.toBig());
+    try std.testing.expectEqual(int, little.toLittle());
+
+    // Cross-conversion consistency
+    try std.testing.expectEqual(big.toLittle(), little.toBig());
+}
+
+test "byte array round trip" {
+    const expected = [_]u8{ 0x01, 0x23, 0x45, 0x67, 0x89, 0xAB, 0xCD, 0xEF, 0xFE, 0xDC, 0xBA, 0x98, 0x76, 0x54, 0x32, 0x10 };
+
+    const uuid = Uuid.fromBytes(expected);
+    const actual = uuid.toBytes();
+
+    try std.testing.expectEqualSlices(u8, &expected, &actual);
+}
+
+test "clock sequence rollover" {
+    // Test that clock sequence increments when generating timestamps at the same tick
+    inline for ([_]type{ Uuid.V1.Timestamp, Uuid.V6.Timestamp, Uuid.V7.Timestamp }) |Timestamp| {
+        var seq = ClockSequence(Timestamp).Zero;
+
+        const ts1 = seq.next();
+        const ts2 = seq.next();
+        const ts3 = seq.next();
+
+        try std.testing.expectEqual(ts1.tick, ts2.tick);
+        try std.testing.expectEqual(ts2.tick, ts3.tick);
+        try std.testing.expect(ts2.seq == ts1.seq +% 1);
+        try std.testing.expect(ts3.seq == ts2.seq +% 1);
+    }
+}
+
+test "v7 ordering" {
+    var seq = ClockSequence(Uuid.V7.Timestamp).Zero;
+
+    const ts1 = seq.next();
+    var ts2 = seq.next();
+    ts2.tick += std.time.ns_per_ms;
+
+    const one = Uuid.V7.init(ts1);
+    const two = Uuid.V7.init(ts2);
+
+    try std.testing.expectEqual(.lt, one.order(two));
+    try std.testing.expectEqual(.gt, two.order(one));
+    try std.testing.expectEqual(.eq, one.order(one));
+
+    try std.testing.expect(one.getUnixMs() < two.getUnixMs());
+    try std.testing.expectEqual(std.time.ns_per_ms, two.getUnixMs() - one.getUnixMs());
+}
+
+
+
+test "v3 v5 deterministic" {
+    const name = "test.example.com";
+    const ns = Uuid.namespace.dns;
+
+    const v3_1 = Uuid.V3.init(ns, name);
+    const v3_2 = Uuid.V3.init(ns, name);
+    const v5_1 = Uuid.V5.init(ns, name);
+    const v5_2 = Uuid.V5.init(ns, name);
+
+    try std.testing.expect(v3_1.eql(v3_2));
+    try std.testing.expect(v5_1.eql(v5_2));
+    try std.testing.expect(!v3_1.toUuid().eql(v5_1.toUuid())); // Different algorithms
+}
+
+test "v3 v5 namespace sensitivity" {
+    const name = "example.com";
+
+    const v3_dns = Uuid.V3.init(Uuid.namespace.dns, name);
+    const v3_url = Uuid.V3.init(Uuid.namespace.url, name);
+    const v5_dns = Uuid.V5.init(Uuid.namespace.dns, name);
+    const v5_url = Uuid.V5.init(Uuid.namespace.url, name);
+
+    try std.testing.expect(!v3_dns.eql(v3_url));
+    try std.testing.expect(!v5_dns.eql(v5_url));
+}
+
+test "v4 randomness" {
+    // Test that V4 UUIDs are unique across a reasonable sample
+    var seen = std.AutoHashMap([16]u8, void).init(test_allocator);
+    defer seen.deinit();
+
+    for (0..10_000) |_| {
+        const uuid = Uuid.V4.init();
+        const bytes = uuid.toBytes();
+        try std.testing.expect(!seen.contains(bytes));
+        try seen.put(bytes, {});
+    }
+}
+
+
+
+test "field extraction and union conversions" {
+    // Test V1 field extraction
+    const node: u48 = 0x123456789ABC;
+    const clock_seq: u14 = 0x1234;
+    const time_tick: u60 = 0x123456789ABCDEF;
+
+    const ts = Uuid.V1.Timestamp{ .tick = time_tick, .seq = clock_seq };
+    const v1 = Uuid.V1.init(ts, node);
+
+    try std.testing.expectEqual(node, v1.getNode());
+    try std.testing.expectEqual(clock_seq, v1.getClockSeq());
+    try std.testing.expectEqual(time_tick, v1.getTime());
+
+    // Test union conversion preserves data
+    const v1_uuid = v1.toUuid();
+    try std.testing.expectEqual(Uuid.Version.v1, v1_uuid.getVersion().?);
+    try std.testing.expectEqual(Uuid.Variant.rfc9562, v1_uuid.getVariant());
+    try std.testing.expectEqualSlices(u8, &v1.toBytes(), &v1_uuid.toBytes());
+
+    // Test V8 custom data
+    const custom = 0x123456789ABCDEF0123456789ABCDE;
+    const v8 = Uuid.V8.init(custom);
+    try std.testing.expectEqual(custom, v8.getCustom());
+    try std.testing.expectEqual(.v8, v8.toUuid().getVersion().?);
+}
+
+test "version-specific creation" {
+    // V1 with timestamp and node
+    const node: u48 = 0x123456789ABC;
+    const v1_ts = Uuid.V1.Timestamp.now();
+    const v1 = Uuid.V1.init(v1_ts, node);
+    try std.testing.expectEqual(.v1, v1.getVersion());
+    try std.testing.expectEqual(.rfc9562, v1.getVariant());
+    try std.testing.expectEqual(node, v1.getNode());
+
+    // V3 with namespace and name
+    const v3 = Uuid.V3.init(Uuid.namespace.dns, "example.com");
+    try std.testing.expectEqual(.v3, v3.getVersion());
+    try std.testing.expectEqual(.rfc9562, v3.getVariant());
+
+    // V4 random
+    const v4 = Uuid.V4.init();
+    try std.testing.expectEqual(.v4, v4.getVersion());
+    try std.testing.expectEqual(.rfc9562, v4.getVariant());
+
+    // V5 with namespace and name
+    const v5 = Uuid.V5.init(Uuid.namespace.url, "https://example.com");
+    try std.testing.expectEqual(.v5, v5.getVersion());
+    try std.testing.expectEqual(.rfc9562, v5.getVariant());
+
+    // V6 with timestamp and node
+    const v6_ts = Uuid.V6.Timestamp.now();
+    const v6 = Uuid.V6.init(v6_ts, node);
+    try std.testing.expectEqual(.v6, v6.getVersion());
+    try std.testing.expectEqual(.rfc9562, v6.getVariant());
+    try std.testing.expectEqual(node, v6.getNode());
+
+    // V7 with timestamp
+    const v7_ts = Uuid.V7.Timestamp.now();
+    const v7 = Uuid.V7.init(v7_ts);
+    try std.testing.expectEqual(.v7, v7.getVersion());
+    try std.testing.expectEqual(.rfc9562, v7.getVariant());
+
+    // V8 with custom data
+    const custom_data = 0x123456789ABCDEF0123456789ABCDE;
+    const v8 = Uuid.V8.init(custom_data);
+    try std.testing.expectEqual(.v8, v8.getVersion());
+    try std.testing.expectEqual(.rfc9562, v8.getVariant());
+    try std.testing.expectEqual(custom_data, v8.getCustom());
+}
+
+test "namespace UUIDs" {
+    // Test predefined namespaces are correctly formatted
+    const dns_formatted = try std.fmt.allocPrint(test_allocator, "{}", .{Uuid.namespace.dns});
+    defer test_allocator.free(dns_formatted);
+    try std.testing.expectEqualStrings("6ba7b810-9dad-11d1-80b4-00c04fd430c8", dns_formatted);
+
+    const url_formatted = try std.fmt.allocPrint(test_allocator, "{}", .{Uuid.namespace.url});
+    defer test_allocator.free(url_formatted);
+    try std.testing.expectEqualStrings("6ba7b811-9dad-11d1-80b4-00c04fd430c8", url_formatted);
+
+    // Test that all namespaces are different
+    try std.testing.expect(!Uuid.namespace.dns.eql(Uuid.namespace.url));
+    try std.testing.expect(!Uuid.namespace.dns.eql(Uuid.namespace.oid));
+    try std.testing.expect(!Uuid.namespace.dns.eql(Uuid.namespace.x500));
+    try std.testing.expect(!Uuid.namespace.url.eql(Uuid.namespace.oid));
+    try std.testing.expect(!Uuid.namespace.url.eql(Uuid.namespace.x500));
+    try std.testing.expect(!Uuid.namespace.oid.eql(Uuid.namespace.x500));
+}
+
+test "conversion round trips" {
+    const original = Uuid.fromNative(0x0123456789ABCDEF_FEDCBA9876543210);
+
+    // Native conversion round trip
+    try std.testing.expectEqual(original.toNative(), Uuid.fromNative(original.toNative()).toNative());
+
+    // Big endian conversion round trip
+    try std.testing.expect(original.eql(Uuid.fromBig(original.toBig())));
+
+    // Little endian conversion round trip
+    try std.testing.expect(original.eql(Uuid.fromLittle(original.toLittle())));
+
+    // Bytes conversion round trip
+    try std.testing.expect(original.eql(Uuid.fromBytes(original.toBytes())));
+
+    // Cross-endian consistency
+    const from_big = Uuid.fromBig(0x0123456789ABCDEF_FEDCBA9876543210);
+    const from_little = Uuid.fromLittle(0x0123456789ABCDEF_FEDCBA9876543210);
+    try std.testing.expectEqual(from_big.toBig(), 0x0123456789ABCDEF_FEDCBA9876543210);
+    try std.testing.expectEqual(from_little.toLittle(), 0x0123456789ABCDEF_FEDCBA9876543210);
+}
+
+test "ordering comprehensive" {
+    const uuid_low = Uuid.fromNative(0x00000000_0000_0000_0000_000000000001);
+    const uuid_mid = Uuid.fromNative(0x12345678_9ABC_DEF0_1234_56789ABCDEF0);
+    const uuid_high = Uuid.fromNative(0xFFFFFFFF_FFFF_FFFF_FFFF_FFFFFFFFFFFE);
+
+    // Test basic ordering
+    try std.testing.expectEqual(.lt, uuid_low.order(uuid_mid));
+    try std.testing.expectEqual(.lt, uuid_mid.order(uuid_high));
+    try std.testing.expectEqual(.lt, uuid_low.order(uuid_high));
+
+    // Test reverse ordering
+    try std.testing.expectEqual(.gt, uuid_high.order(uuid_mid));
+    try std.testing.expectEqual(.gt, uuid_mid.order(uuid_low));
+    try std.testing.expectEqual(.gt, uuid_high.order(uuid_low));
+
+    // Test equality
+    try std.testing.expectEqual(.eq, uuid_mid.order(uuid_mid));
+
+    // Test with special values
+    try std.testing.expectEqual(.lt, Uuid.Nil.order(uuid_low));
+    try std.testing.expectEqual(.gt, Uuid.Max.order(uuid_high));
+}
+
+test "clock sequence edge cases" {
+    // Test sequence overflow behavior
+    var seq = ClockSequence(Uuid.V7.Timestamp).Zero;
+    
+    // Force sequence to near overflow
+    seq.seq = std.math.maxInt(@TypeOf(seq.seq)) - 1;
+    
+    const ts1 = seq.next();
+    const ts2 = seq.next(); // Should wrap around
+    const ts3 = seq.next();
+    
+    try std.testing.expectEqual(ts1.tick, ts2.tick);
+    try std.testing.expectEqual(ts2.tick, ts3.tick);
+    try std.testing.expect(ts2.seq == ts1.seq +% 1);
+    try std.testing.expect(ts3.seq == ts2.seq +% 1);
+}
+
+test "format edge cases" {
+    // Test formatting with all zeros and all ones
+    const all_zeros = Uuid.Nil;
+    const zeros_str = try std.fmt.allocPrint(test_allocator, "{}", .{all_zeros});
+    defer test_allocator.free(zeros_str);
+    try std.testing.expectEqualStrings("00000000-0000-0000-0000-000000000000", zeros_str);
+
+    const all_ones = Uuid.Max;
+    const ones_str = try std.fmt.allocPrint(test_allocator, "{}", .{all_ones});
+    defer test_allocator.free(ones_str);
+    try std.testing.expectEqualStrings("ffffffff-ffff-ffff-ffff-ffffffffffff", ones_str);
+
+    // Test that format length is always consistent
+    for (0..100) |_| {
+        const random_uuid = Uuid.V4.init();
+        const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{random_uuid});
+        defer test_allocator.free(formatted);
+        try std.testing.expectEqual(36, formatted.len); // Standard UUID string length
+        
+        // Verify format structure (8-4-4-4-12)
+        try std.testing.expectEqual('-', formatted[8]);
+        try std.testing.expectEqual('-', formatted[13]);
+        try std.testing.expectEqual('-', formatted[18]);
+        try std.testing.expectEqual('-', formatted[23]);
+    }
 }
