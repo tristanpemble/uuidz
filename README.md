@@ -1,6 +1,6 @@
 # uuidz
 
-[RFC 9562](https://datatracker.ietf.org/doc/html/rfc9562) compliant UUID implementation for Zig.
+An [RFC 9562](https://datatracker.ietf.org/doc/html/rfc9562) compliant UUID implementation for Zig.
 
 ## About
 
@@ -96,8 +96,8 @@ We provide two ClockSequence implementations, but you are free to write your own
 
 Both implementations accept a `Clock`, so that you can customize their behavior. We provide two clocks:
 
-- `SystemClock`: Uses the system clock to generate timestamps.
-- `ZeroClock`: Always returns zero.
+- `Clock.system`: Uses the system clock to generate timestamps.
+- `Clock.zero`: Always returns zero.
 
 They also accept a `std.Random`, allowing you to use a custom random number generator.
 
