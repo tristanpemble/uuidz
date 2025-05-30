@@ -20,7 +20,7 @@ pub fn build(b: *std.Build) void {
 
     // Example
     const example = b.addExecutable(.{
-        .name = "usage",
+        .name = "example",
         .root_source_file = b.path("example.zig"),
         .target = target,
         .optimize = optimize,
