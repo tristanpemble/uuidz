@@ -4,12 +4,12 @@
 
 ## Design
 
-- **Version support**: Implements all UUID versions (v1-v8) including the latest v6, v7, and v8 from RFC 9562
+- **Version support**: Implements all UUID versions including the latest v6, v7, and v8
 - **Type safety**: Use the `Uuid` union to accept any version, or `Uuid.V7` to only accept V7 UUIDs
 - **Thread safety**: Generate time-based UUIDs from multiple threads without coordination or duplicate values
 - **Packed structs**: All UUID types can cast directly to integers and work with raw bytes without overhead
 - **Compliant**: Generates UUIDs with correct bit layouts, version/variant fields, and timestamp formats
-- **Non-compliant**: Represent UUIDs that don't follow RFC 9562 for interoperability, with type safety
+- **Non-compliant**: Represent UUIDs that don't follow RFC 9562 for interoperability
 - **Flexible clocks**: Configurable clock sources for time-based UUIDs with atomic and local implementations
 - **Zero dependencies**: Uses only Zig's standard library
 
@@ -99,8 +99,8 @@ For example, to use a single-threaded `LocalClockSequence`, that only outputs ze
 
 ```zig
 var rng = std.Random.DefaultPrng.init(0);
-var clock_seq = uuidz.LocalClockSequence(uuidz.Uuid.V7.Timestamp){
-    .clock = uuidz.Clock.Zero,
+var clock_seq = Uuid.LocalClockSequence(Uuid.V7.Timestamp){
+    .clock = .zero,
     .rand = rng.random(),
 };
 
@@ -113,24 +113,16 @@ You can create and use your own clocks if you need custom behavior for your usec
 
 ```zig
 const FixedClock = struct {
-    fixed_time: i128,
+    fixed_ns: i128,
 
     fn nanoTimestamp(self: *FixedClock) i128 {
-        return self.fixed_time;
+        return self.fixed_ns;
     }
 
     fn toClock(self: *FixedClock) Clock {
-        return Clock.init(self, FixedClock.nanoTimestamp)
+        return Uuid.Clock.init(self, FixedClock.nanoTimestamp)
     }
 };
-
-var my_fixed_clock = FixedClock{ .fixed_time = 1234567890_000_000_000 };
-
-var clock_seq = LocalClockSequence(Uuid.V7.Timestamp){
-    .clock = my_fixed_clock.toClock(),
-};
-
-const uuid: Uuid = .{ .v7 = .init(clock_seq.next()) };
 ```
 
 ## Examples

@@ -1,5 +1,5 @@
 const std = @import("std");
-const uuidz = @import("src/root.zig");
+const Uuid = @import("src/root.zig").Uuid;
 
 const ITERATIONS = 1_000_000;
 const WARMUP_ITERATIONS = 10_000;
@@ -10,8 +10,8 @@ pub fn main() !void {
 
     const allocator = gpa.allocator();
 
-    var warmup_seq = uuidz.AtomicClockSequence(uuidz.Uuid.V7.Timestamp){
-        .clock = uuidz.Clock.System,
+    var warmup_seq = Uuid.AtomicClockSequence(Uuid.V7.Timestamp){
+        .clock = .system,
         .rand = std.crypto.random,
     };
     for (0..WARMUP_ITERATIONS) |_| {
@@ -31,8 +31,8 @@ pub fn main() !void {
 }
 
 fn benchmarkSingleThreaded() !u64 {
-    var local_seq = uuidz.LocalClockSequence(uuidz.Uuid.V7.Timestamp){
-        .clock = uuidz.Clock.System,
+    var local_seq = Uuid.LocalClockSequence(Uuid.V7.Timestamp){
+        .clock = .system,
         .rand = std.crypto.random,
     };
     var timer = try std.time.Timer.start();
@@ -43,8 +43,8 @@ fn benchmarkSingleThreaded() !u64 {
     const local_ns_per_op = local_ns / ITERATIONS;
     const local_ops_per_sec = @as(f64, std.time.ns_per_s) / @as(f64, @floatFromInt(local_ns_per_op));
 
-    var atomic_seq = uuidz.AtomicClockSequence(uuidz.Uuid.V7.Timestamp){
-        .clock = uuidz.Clock.System,
+    var atomic_seq = Uuid.AtomicClockSequence(Uuid.V7.Timestamp){
+        .clock = .system,
         .rand = std.crypto.random,
     };
     timer.reset();
@@ -68,13 +68,13 @@ fn benchmarkMultiThreaded(thread_count: u32, allocator: std.mem.Allocator, basel
     const iterations_per_thread = ITERATIONS / thread_count;
     const total_operations = thread_count * iterations_per_thread;
 
-    var shared_seq = uuidz.AtomicClockSequence(uuidz.Uuid.V7.Timestamp){
-        .clock = uuidz.Clock.System,
+    var shared_seq = Uuid.AtomicClockSequence(Uuid.V7.Timestamp){
+        .clock = .system,
         .rand = std.crypto.random,
     };
 
     const WorkerContext = struct {
-        seq: *uuidz.AtomicClockSequence(uuidz.Uuid.V7.Timestamp),
+        seq: *Uuid.AtomicClockSequence(Uuid.V7.Timestamp),
         iterations: u32,
 
         fn run(self: @This()) void {
@@ -111,13 +111,13 @@ fn benchmarkStressTest(allocator: std.mem.Allocator) !void {
     const iterations_per_thread = 10_000;
     const total_operations = thread_count * iterations_per_thread;
 
-    var shared_seq = uuidz.AtomicClockSequence(uuidz.Uuid.V7.Timestamp){
-        .clock = uuidz.Clock.System,
+    var shared_seq = Uuid.AtomicClockSequence(Uuid.V7.Timestamp){
+        .clock = .system,
         .rand = std.crypto.random,
     };
 
     const StressWorkerContext = struct {
-        seq: *uuidz.AtomicClockSequence(uuidz.Uuid.V7.Timestamp),
+        seq: *Uuid.AtomicClockSequence(Uuid.V7.Timestamp),
         iterations: u32,
 
         fn run(self: @This()) void {

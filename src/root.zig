@@ -10,36 +10,6 @@ const rand = std.crypto.random;
 
 const greg_unix_offset = 0x01B21DD213814000;
 
-fn fieldBitOffset(comptime T: type, comptime field_name: []const u8) u16 {
-    const fields = std.meta.fields(T);
-    comptime var offset = 0;
-
-    if (!@hasField(T, field_name)) {
-        @compileError("Field '" ++ field_name ++ "' does not exist in type '" ++ @typeName(T) ++ "'");
-    }
-
-    inline for (fields) |field| {
-        if (std.mem.eql(u8, field.name, field_name)) {
-            return offset;
-        }
-        offset += @bitSizeOf(field.type);
-    }
-
-    unreachable;
-}
-
-fn readField(comptime T: type, comptime field_name: []const u8, uuid: *const T) @FieldType(T, field_name) {
-    const bytes = @as(*const [@sizeOf(T)]u8, @ptrCast(uuid));
-    const offset = fieldBitOffset(T, field_name);
-    return std.mem.readPackedInt(@FieldType(T, field_name), bytes, offset, .big);
-}
-
-fn writeField(comptime T: type, comptime field_name: []const u8, uuid: *T, value: @FieldType(T, field_name)) void {
-    const bytes = @as(*[@sizeOf(T)]u8, @ptrCast(uuid));
-    const offset = fieldBitOffset(T, field_name);
-    std.mem.writePackedInt(@FieldType(T, field_name), bytes, offset, value, .big);
-}
-
 pub const Uuid = packed union {
     v1: V1,
     v2: V2,
@@ -50,11 +20,8 @@ pub const Uuid = packed union {
     v7: V7,
     v8: V8,
 
-    nil: enum(u128) { nil = std.math.minInt(u128) },
-    max: enum(u128) { max = std.math.maxInt(u128) },
-
-    pub const Nil: Uuid = .fromNative(0x00000000_0000_0000_0000_000000000000);
-    pub const Max: Uuid = .fromNative(0xffffffff_ffff_ffff_ffff_ffffffffffff);
+    pub const nil: Uuid = .fromNative(0x00000000_0000_0000_0000_000000000000);
+    pub const max: Uuid = .fromNative(0xffffffff_ffff_ffff_ffff_ffffffffffff);
 
     pub const dns: Uuid = .fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
     pub const url: Uuid = .fromNative(0x6ba7b811_9dad_11d1_80b4_00c04fd430c8);
@@ -160,11 +127,11 @@ pub const Uuid = packed union {
     }
 
     pub fn isNil(self: Uuid) bool {
-        return self.eql(Nil);
+        return self.eql(nil);
     }
 
     pub fn isMax(self: Uuid) bool {
-        return self.eql(Max);
+        return self.eql(max);
     }
 
     pub const Version = enum(u4) {
@@ -1008,138 +975,166 @@ pub const Uuid = packed union {
             bytes[12], bytes[13], bytes[14], bytes[15],
         });
     }
-};
 
-pub const Clock = struct {
-    ptr: *anyopaque,
-    nanoTimestampFn: *const fn (ptr: *anyopaque) i128,
+    pub const Clock = struct {
+        ptr: *anyopaque,
+        nanoTimestampFn: *const fn (ptr: *anyopaque) i128,
 
-    pub const System = Clock.init(&.{}, systemClock);
-    pub const Zero = Clock.init(&.{}, zeroClock);
+        pub const system = Clock.init(&.{}, systemClock);
+        pub const zero = Clock.init(&.{}, zeroClock);
 
-    pub fn init(ptr: *anyopaque, nanoTimestampFn: *const fn (ptr: *anyopaque) i128) Clock {
-        return Clock{
-            .ptr = ptr,
-            .nanoTimestampFn = nanoTimestampFn,
-        };
-    }
-
-    pub fn nanoTimestamp(self: *const Clock) i128 {
-        return self.nanoTimestampFn(self.ptr);
-    }
-
-    fn systemClock(_: *anyopaque) i128 {
-        return std.time.nanoTimestamp();
-    }
-
-    fn zeroClock(_: *anyopaque) i128 {
-        return 0;
-    }
-};
-
-pub fn LocalClockSequence(comptime Timestamp: type) type {
-    return struct {
-        pub const Tick = @FieldType(Timestamp, "tick");
-        pub const Seq = @FieldType(Timestamp, "seq");
-
-        pub var System: @This() = .{
-            .clock = Clock.System,
-            .rand = std.crypto.random,
-        };
-
-        pub const Zero: @This() = .{
-            .clock = Clock.Zero,
-            .rand = std.crypto.random,
-        };
-
-        clock: Clock,
-        rand: Random = std.crypto.random,
-        last: Tick = 0,
-        seq: Seq = 0,
-
-        pub fn next(self: *@This()) Timestamp {
-            const tick = self.tickTimestamp();
-
-            if (tick > self.last) {
-                self.last = tick;
-                self.seq = self.rand.int(Seq);
-            } else {
-                self.seq +%= 1;
-            }
-
-            return .{
-                .tick = self.last,
-                .seq = self.seq,
+        pub fn init(ptr: *anyopaque, nanoTimestampFn: *const fn (ptr: *anyopaque) i128) Clock {
+            return Clock{
+                .ptr = ptr,
+                .nanoTimestampFn = nanoTimestampFn,
             };
         }
 
-        fn tickTimestamp(self: *@This()) Tick {
-            const ns = self.clock.nanoTimestamp() + Timestamp.ns_unix_offset;
-            return @intCast(@divFloor(ns, Timestamp.ns_per_tick));
+        pub fn nanoTimestamp(self: *const Clock) i128 {
+            return self.nanoTimestampFn(self.ptr);
+        }
+
+        fn systemClock(_: *anyopaque) i128 {
+            return std.time.nanoTimestamp();
+        }
+
+        fn zeroClock(_: *anyopaque) i128 {
+            return 0;
         }
     };
+
+    pub fn LocalClockSequence(comptime Timestamp: type) type {
+        return struct {
+            pub const Tick = @FieldType(Timestamp, "tick");
+            pub const Seq = @FieldType(Timestamp, "seq");
+
+            pub var System: @This() = .{
+                .clock = .system,
+            };
+
+            pub const Zero: @This() = .{
+                .clock = .zero,
+            };
+
+            clock: Clock,
+            rand: Random = std.crypto.random,
+            last: Tick = 0,
+            seq: Seq = 0,
+
+            pub fn next(self: *@This()) Timestamp {
+                const tick = self.tickTimestamp();
+
+                if (tick > self.last) {
+                    self.last = tick;
+                    self.seq = self.rand.int(Seq);
+                } else {
+                    self.seq +%= 1;
+                }
+
+                return .{
+                    .tick = self.last,
+                    .seq = self.seq,
+                };
+            }
+
+            fn tickTimestamp(self: *@This()) Tick {
+                const ns = self.clock.nanoTimestamp() + Timestamp.ns_unix_offset;
+                return @intCast(@divFloor(ns, Timestamp.ns_per_tick));
+            }
+        };
+    }
+
+    pub fn AtomicClockSequence(comptime Timestamp: type) type {
+        return struct {
+            pub const Tick = @FieldType(Timestamp, "tick");
+            pub const Seq = @FieldType(Timestamp, "seq");
+
+            pub const State = packed struct(u128) {
+                last: Tick = 0,
+                _: std.meta.Int(.unsigned, 128 - @bitSizeOf(Tick) - @bitSizeOf(Seq)) = 0,
+                seq: Seq = 0,
+            };
+
+            comptime {
+                if (@bitSizeOf(Tick) + @bitSizeOf(Seq) > 128) {
+                    @compileError("Tick + Seq cannot exceed 128 bits");
+                }
+            }
+
+            pub var System: @This() = .{
+                .clock = .system,
+            };
+
+            pub const Zero: @This() = .{
+                .clock = .zero,
+            };
+
+            clock: Clock,
+            rand: Random = std.crypto.random,
+            state: std.atomic.Value(State) = .init(.{}),
+
+            pub fn next(self: *@This()) Timestamp {
+                var new: State = .{};
+                const tick = self.tickTimestamp();
+
+                while (true) {
+                    const old = self.state.load(.acquire);
+
+                    if (tick > old.last) {
+                        new.last = tick;
+                        new.seq = self.rand.int(Seq);
+                    } else {
+                        new.last = old.last;
+                        new.seq = old.seq +% 1;
+                    }
+
+                    if (self.state.cmpxchgWeak(old, new, .release, .acquire)) |_| {
+                        continue;
+                    } else {
+                        return .{
+                            .tick = new.last,
+                            .seq = new.seq,
+                        };
+                    }
+                }
+            }
+
+            fn tickTimestamp(self: *@This()) Tick {
+                const ns = self.clock.nanoTimestamp() + Timestamp.ns_unix_offset;
+                return @intCast(@divFloor(ns, Timestamp.ns_per_tick));
+            }
+        };
+    }
+};
+
+fn readField(comptime T: type, comptime field_name: []const u8, uuid: *const T) @FieldType(T, field_name) {
+    const bytes = @as(*const [@sizeOf(T)]u8, @ptrCast(uuid));
+    const offset = fieldBitOffset(T, field_name);
+    return std.mem.readPackedInt(@FieldType(T, field_name), bytes, offset, .big);
 }
 
-pub fn AtomicClockSequence(comptime Timestamp: type) type {
-    return struct {
-        pub const Tick = @FieldType(Timestamp, "tick");
-        pub const Seq = @FieldType(Timestamp, "seq");
+fn writeField(comptime T: type, comptime field_name: []const u8, uuid: *T, value: @FieldType(T, field_name)) void {
+    const bytes = @as(*[@sizeOf(T)]u8, @ptrCast(uuid));
+    const offset = fieldBitOffset(T, field_name);
+    std.mem.writePackedInt(@FieldType(T, field_name), bytes, offset, value, .big);
+}
 
-        pub const State = packed struct(u128) {
-            last: Tick = 0,
-            _: std.meta.Int(.unsigned, 128 - @bitSizeOf(Tick) - @bitSizeOf(Seq)) = 0,
-            seq: Seq = 0,
-        };
+fn fieldBitOffset(comptime T: type, comptime field_name: []const u8) u16 {
+    const fields = std.meta.fields(T);
+    comptime var offset = 0;
 
-        comptime {
-            if (@bitSizeOf(Tick) + @bitSizeOf(Seq) > 128) {
-                @compileError("Tick + Seq cannot exceed 128 bits");
-            }
+    if (!@hasField(T, field_name)) {
+        @compileError("Field '" ++ field_name ++ "' does not exist in type '" ++ @typeName(T) ++ "'");
+    }
+
+    inline for (fields) |field| {
+        if (std.mem.eql(u8, field.name, field_name)) {
+            return offset;
         }
+        offset += @bitSizeOf(field.type);
+    }
 
-        pub var System: @This() = .{
-            .clock = Clock.System,
-        };
-
-        pub const Zero: @This() = .{
-            .clock = Clock.Zero,
-        };
-
-        clock: Clock,
-        rand: Random = std.crypto.random,
-        state: std.atomic.Value(State) = .init(.{}),
-
-        pub fn next(self: *@This()) Timestamp {
-            var new: State = .{};
-            const tick = self.tickTimestamp();
-
-            while (true) {
-                const old = self.state.load(.acquire);
-
-                if (tick > old.last) {
-                    new.last = tick;
-                    new.seq = self.rand.int(Seq);
-                } else {
-                    new.last = old.last;
-                    new.seq = old.seq +% 1;
-                }
-
-                if (self.state.cmpxchgWeak(old, new, .release, .acquire)) |_| {
-                    continue;
-                } else {
-                    return .{
-                        .tick = new.last,
-                        .seq = new.seq,
-                    };
-                }
-            }
-        }
-
-        fn tickTimestamp(self: *@This()) Tick {
-            const ns = self.clock.nanoTimestamp() + Timestamp.ns_unix_offset;
-            return @intCast(@divFloor(ns, Timestamp.ns_per_tick));
-        }
-    };
+    unreachable;
 }
 
 const test_allocator = std.testing.allocator;
@@ -1282,23 +1277,19 @@ test "RFC9562 Test Vector B.2" {
 
 test "nil and max special values" {
     // Test nil UUID
-    const nil1 = Uuid.Nil;
-    const nil2 = Uuid{ .nil = .nil };
-    const nil3 = Uuid.fromNative(0);
+    const nil1 = Uuid.nil;
+    const nil2 = Uuid.fromNative(0);
 
     try std.testing.expect(nil1.eql(nil2));
-    try std.testing.expect(nil1.eql(nil3));
     try std.testing.expect(nil1.isNil());
     try std.testing.expect(!nil1.isMax());
     try std.testing.expectEqual(.nil, nil1.getVersion());
 
     // Test max UUID
-    const max1 = Uuid.Max;
-    const max2 = Uuid{ .max = .max };
-    const max3 = Uuid.fromNative(std.math.maxInt(u128));
+    const max1 = Uuid.max;
+    const max2 = Uuid.fromNative(std.math.maxInt(u128));
 
     try std.testing.expect(max1.eql(max2));
-    try std.testing.expect(max1.eql(max3));
     try std.testing.expect(max1.isMax());
     try std.testing.expect(!max1.isNil());
     try std.testing.expectEqual(.max, max1.getVersion());
@@ -1397,7 +1388,7 @@ test "byte array round trip" {
 test "clock sequence rollover" {
     // Test that clock sequence increments when generating timestamps at the same tick
     inline for ([_]type{ Uuid.V1.Timestamp, Uuid.V6.Timestamp, Uuid.V7.Timestamp }) |Timestamp| {
-        var seq = AtomicClockSequence(Timestamp).Zero;
+        var seq = Uuid.AtomicClockSequence(Timestamp).Zero;
 
         const ts1 = seq.next();
         const ts2 = seq.next();
@@ -1411,7 +1402,7 @@ test "clock sequence rollover" {
 }
 
 test "v7 ordering" {
-    var seq = AtomicClockSequence(Uuid.V7.Timestamp).Zero;
+    var seq = Uuid.AtomicClockSequence(Uuid.V7.Timestamp).Zero;
 
     const ts1 = seq.next();
     var ts2 = seq.next();
@@ -1597,13 +1588,13 @@ test "ordering comprehensive" {
     try std.testing.expectEqual(.eq, uuid_mid.order(uuid_mid));
 
     // Test with special values
-    try std.testing.expectEqual(.lt, Uuid.Nil.order(uuid_low));
-    try std.testing.expectEqual(.gt, Uuid.Max.order(uuid_high));
+    try std.testing.expectEqual(.lt, Uuid.nil.order(uuid_low));
+    try std.testing.expectEqual(.gt, Uuid.max.order(uuid_high));
 }
 
 test "clock sequence edge cases" {
     // Test sequence overflow behavior
-    var seq = AtomicClockSequence(Uuid.V7.Timestamp).Zero;
+    var seq = Uuid.AtomicClockSequence(Uuid.V7.Timestamp).Zero;
 
     // Force sequence to near overflow by manipulating the atomic state directly
     const max_seq = std.math.maxInt(@TypeOf(seq).Seq);
@@ -1623,7 +1614,7 @@ test "clock sequence edge cases" {
 test "single-threaded clock sequence rollover" {
     // Test that single-threaded clock sequence increments when generating timestamps at the same tick
     inline for ([_]type{ Uuid.V1.Timestamp, Uuid.V6.Timestamp, Uuid.V7.Timestamp }) |Timestamp| {
-        var seq = LocalClockSequence(Timestamp).Zero;
+        var seq = Uuid.LocalClockSequence(Timestamp).Zero;
 
         const ts1 = seq.next();
         const ts2 = seq.next();
@@ -1638,7 +1629,7 @@ test "single-threaded clock sequence rollover" {
 
 test "single-threaded clock sequence edge cases" {
     // Test sequence overflow behavior
-    var seq = LocalClockSequence(Uuid.V7.Timestamp).Zero;
+    var seq = Uuid.LocalClockSequence(Uuid.V7.Timestamp).Zero;
 
     // Force sequence to near overflow
     seq.seq = std.math.maxInt(@TypeOf(seq.seq)) - 1;
@@ -1659,12 +1650,12 @@ test "clock sequence thread safety" {
     const ThreadCount = 16;
     const IterationsPerThread = 1000;
 
-    var seq = AtomicClockSequence(Uuid.V7.Timestamp).Zero;
+    var seq = Uuid.AtomicClockSequence(Uuid.V7.Timestamp).Zero;
     var threads: [ThreadCount]std.Thread = undefined;
     var results: [ThreadCount][IterationsPerThread]Uuid.V7.Timestamp = undefined;
 
     const ThreadArgs = struct {
-        seq: *AtomicClockSequence(Uuid.V7.Timestamp),
+        seq: *Uuid.AtomicClockSequence(Uuid.V7.Timestamp),
         results: *[IterationsPerThread]Uuid.V7.Timestamp,
     };
 
@@ -1722,12 +1713,12 @@ test "clock sequence thread safety" {
 
 test "format edge cases" {
     // Test formatting with all zeros and all ones
-    const all_zeros = Uuid.Nil;
+    const all_zeros = Uuid.nil;
     const zeros_str = try std.fmt.allocPrint(test_allocator, "{}", .{all_zeros});
     defer test_allocator.free(zeros_str);
     try std.testing.expectEqualStrings("00000000-0000-0000-0000-000000000000", zeros_str);
 
-    const all_ones = Uuid.Max;
+    const all_ones = Uuid.max;
     const ones_str = try std.fmt.allocPrint(test_allocator, "{}", .{all_ones});
     defer test_allocator.free(ones_str);
     try std.testing.expectEqualStrings("ffffffff-ffff-ffff-ffff-ffffffffffff", ones_str);
