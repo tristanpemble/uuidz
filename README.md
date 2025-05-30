@@ -33,9 +33,6 @@ exe.root_module.addImport("uuidz", uuidz.module("uuidz"));
 ```zig
 const Uuid = @import("uuidz").Uuid;
 
-// Parse a string
-const uuid = try Uuid.parse("c232ab00-9414-11ec-b3c8-9f6bdeced846");
-
 // Typed versions to accept only one version
 const t1: Uuid.V1 = .now(0x001122334455);
 const t3: Uuid.V3 = .init(.dns, "tristanpemble.com");
@@ -59,14 +56,16 @@ const is_equal: bool = u1.eql(u2);
 const order: std.math.Order = u1.order(u2);
 
 // Convert formats
-const uuid: Uuid = .fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
+const uuid = try Uuid.parse("6ba7b810-9dad-11d1-80b4-00c04fd430c8");
+const uuid_ne: Uuid = .fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
 const uuid_be: Uuid = .fromBig(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
 const uuid_le: Uuid = .fromLittle(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
-const uuid_by: Uuid = .fromBytes(.{ 0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8 });
+const uuid_by: Uuid = .fromBytes(.{0x6b,0xa7,0xb8,0x10,0x9d,0xad,0x11,0xd1,0x80,0xb4,0x00,0xc0,0x4f,0xd4,0x30,0xc8});
 const int_ne: u128 = uuid.toNative();
 const int_be: u128 = uuid.toBig();
 const int_le: u128 = uuid.toLittle();
 const bytes: [16]u8 = uuid.toBytes();
+const string: [36]u8 = uuid.toString();
 
 // Inspect
 const variant: Uuid.Variant = uuid.getVariant();
