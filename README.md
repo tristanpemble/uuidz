@@ -1,42 +1,31 @@
 # uuidz
 
-RFC 9562 compliant UUID implementation for Zig.
+[RFC 9562](https://datatracker.ietf.org/doc/html/rfc9562) compliant UUID implementation for Zig.
 
 ## Design
 
-The library is built around a `Uuid` packed union that can represent any UUID format while maintaining type safety. Each UUID version (V1-V8) is implemented as its own packed struct with version-specific fields and methods.
-
-Key design decisions:
-
-- **Packed structs**: All UUID types are `packed struct(u128)` ensuring they're exactly 128 bits
-- **Union for flexibility**: The main `Uuid` type is a packed union allowing you to work with any version generically or access version-specific functionality
-- **Type safety**: You can use specific types like `Uuid.V4` when you know the version, or the union `Uuid` for generic handling
-- **Endianness handling**: Support for big-endian, little-endian, and native byte order conversions
-- **Thread safety**: Clock sequences use atomic operations for thread-safe timestamp generation
-- **RFC 9562 compliance**: Standard bit field layouts, variant bits, and version bits
-
-The core abstraction separates concerns:
-
-- Clock sequences handle timestamp uniqueness and ordering
-- Individual version structs handle format-specific logic
-- The union provides a common interface for all versions
-- Conversion methods handle different representations (bytes, integers, strings)
-
-This design allows compile-time type safety when you know the UUID version, runtime flexibility when you don't, and efficient representation regardless of how you use it.
+- **Version support**: Implements all UUID versions (v1-v8) including the latest v6, v7, and v8 from RFC 9562
+- **Type safety**: Use the `Uuid` union to accept any version, or `Uuid.V7` to only accept V7 UUIDs
+- **Thread safety**: Generate time-based UUIDs from multiple threads without coordination or duplicate values
+- **Packed structs**: All UUID types can cast directly to integers and work with raw bytes without overhead
+- **Compliant**: Generates UUIDs with correct bit layouts, version/variant fields, and timestamp formats
+- **Non-compliant**: Represent UUIDs that don't follow RFC 9562 for interoperability, with type safety
+- **Flexible clocks**: Configurable clock sources for time-based UUIDs with atomic and local implementations
+- **Zero dependencies**: Uses only Zig's standard library
 
 The design is heavily influenced by the Rust [uuid](https://github.com/uuid-rs/uuid) crate, with some Zig specific flavoring.
 
 ## Installation
 
-Add to `build.zig.zon`:
+```bash
+zig fetch --save git+https://github.com/tristanpemble/uuidz.git
+```
+
+Then add to your `build.zig`:
 
 ```zig
-.dependencies = .{
-    .uuidz = .{
-        .url = "https://github.com/user/uuidz/archive/main.tar.gz",
-        .hash = "1220...",
-    },
-},
+const uuidz = b.dependency("uuidz", .{});
+exe.root_module.addImport("uuidz", uuidz.module("uuidz"));
 ```
 
 ## Usage
@@ -90,8 +79,9 @@ const time = switch (version) {
 
 ## Clocks, clock sequences & entropy
 
-For time-based UUIDs (v1, v6, v7), clock sequences ensure uniqueness when multiple UUIDs are generated at the same timestamp. It does
-this by using a random initial sequence value that increments for each UUID within the same tick, as per RFC9562.
+For time-based UUIDs (v1, v6, v7), clock sequences ensure uniqueness when multiple UUIDs are generated at the same
+timestamp. It does this by using a random initial sequence value that increments for each UUID within the same tick,
+as per RFC9562.
 
 We provide two ClockSequence implementations, but you are free to write your own:
 
