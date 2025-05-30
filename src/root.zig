@@ -28,6 +28,91 @@ pub const Uuid = packed union {
     pub const oid: Uuid = .fromNative(0x6ba7b812_9dad_11d1_80b4_00c04fd430c8);
     pub const x500: Uuid = .fromNative(0x6ba7b814_9dad_11d1_80b4_00c04fd430c8);
 
+    pub fn parse(input: []const u8) !Uuid {
+        if (input.len != 36) return error.InvalidFormat;
+
+        if (input[8] != '-' or input[13] != '-' or input[18] != '-' or input[23] != '-') {
+            return error.InvalidFormat;
+        }
+
+        const ctod = struct {
+            fn ctod(c: u8) !u8 {
+                return switch (c) {
+                    '0'...'9' => c - '0',
+                    'A'...'F' => c - 'A' + 10,
+                    'a'...'f' => c - 'a' + 10,
+                    else => return error.InvalidFormat,
+                };
+            }
+        }.ctod;
+
+        return Uuid.fromBytes([16]u8{
+            (try ctod(input[0]) << 4) | try ctod(input[1]),
+            (try ctod(input[2]) << 4) | try ctod(input[3]),
+            (try ctod(input[4]) << 4) | try ctod(input[5]),
+            (try ctod(input[6]) << 4) | try ctod(input[7]),
+            (try ctod(input[9]) << 4) | try ctod(input[10]),
+            (try ctod(input[11]) << 4) | try ctod(input[12]),
+            (try ctod(input[14]) << 4) | try ctod(input[15]),
+            (try ctod(input[16]) << 4) | try ctod(input[17]),
+            (try ctod(input[19]) << 4) | try ctod(input[20]),
+            (try ctod(input[21]) << 4) | try ctod(input[22]),
+            (try ctod(input[24]) << 4) | try ctod(input[25]),
+            (try ctod(input[26]) << 4) | try ctod(input[27]),
+            (try ctod(input[28]) << 4) | try ctod(input[29]),
+            (try ctod(input[30]) << 4) | try ctod(input[31]),
+            (try ctod(input[32]) << 4) | try ctod(input[33]),
+            (try ctod(input[34]) << 4) | try ctod(input[35]),
+        });
+    }
+
+    pub fn toString(self: Uuid) [36]u8 {
+        const bytes = self.toBytes();
+        const charset = std.fmt.hex_charset;
+
+        var result: [36]u8 = undefined;
+
+        // First group: 8 hex chars (4 bytes)
+        inline for (0..4) |i| {
+            result[i * 2 + 0] = charset[bytes[i] >> 4];
+            result[i * 2 + 1] = charset[bytes[i] & 15];
+        }
+        result[8] = '-';
+
+        // Second group: 4 hex chars (2 bytes)
+        inline for (4..6) |i| {
+            const pos = (i - 4) * 2 + 9;
+            result[pos + 0] = charset[bytes[i] >> 4];
+            result[pos + 1] = charset[bytes[i] & 15];
+        }
+        result[13] = '-';
+
+        // Third group: 4 hex chars (2 bytes)
+        inline for (6..8) |i| {
+            const pos = (i - 6) * 2 + 14;
+            result[pos + 0] = charset[bytes[i] >> 4];
+            result[pos + 1] = charset[bytes[i] & 15];
+        }
+        result[18] = '-';
+
+        // Fourth group: 4 hex chars (2 bytes)
+        inline for (8..10) |i| {
+            const pos = (i - 8) * 2 + 19;
+            result[pos + 0] = charset[bytes[i] >> 4];
+            result[pos + 1] = charset[bytes[i] & 15];
+        }
+        result[23] = '-';
+
+        // Fifth group: 12 hex chars (6 bytes)
+        inline for (10..16) |i| {
+            const pos = (i - 10) * 2 + 24;
+            result[pos + 0] = charset[bytes[i] >> 4];
+            result[pos + 1] = charset[bytes[i] & 15];
+        }
+
+        return result;
+    }
+
     pub fn fromBytes(bytes: [16]u8) Uuid {
         return @bitCast(bytes);
     }
@@ -226,6 +311,10 @@ pub const Uuid = packed union {
             return @byteSwap(@as(u128, @bitCast(self)));
         }
 
+        pub fn toString(self: V1) [36]u8 {
+            return self.toUuid().toString();
+        }
+
         pub fn asBytes(self: *const V1) *const [16]u8 {
             return @ptrCast(self);
         }
@@ -309,6 +398,10 @@ pub const Uuid = packed union {
 
         pub fn toLittle(self: V2) u128 {
             return @byteSwap(@as(u128, @bitCast(self)));
+        }
+
+        pub fn toString(self: V2) [36]u8 {
+            return self.toUuid().toString();
         }
 
         pub fn asBytes(self: *const V2) *const [16]u8 {
@@ -413,6 +506,10 @@ pub const Uuid = packed union {
             return @byteSwap(@as(u128, @bitCast(self)));
         }
 
+        pub fn toString(self: V3) [36]u8 {
+            return self.toUuid().toString();
+        }
+
         pub fn asBytes(self: *const V3) *const [16]u8 {
             return @ptrCast(self);
         }
@@ -500,6 +597,10 @@ pub const Uuid = packed union {
 
         pub fn toLittle(self: V4) u128 {
             return @byteSwap(@as(u128, @bitCast(self)));
+        }
+
+        pub fn toString(self: V4) [36]u8 {
+            return self.toUuid().toString();
         }
 
         pub fn asBytes(self: *const V4) *const [16]u8 {
@@ -598,6 +699,10 @@ pub const Uuid = packed union {
 
         pub fn toLittle(self: V5) u128 {
             return @byteSwap(@as(u128, @bitCast(self)));
+        }
+
+        pub fn toString(self: V5) [36]u8 {
+            return self.toUuid().toString();
         }
 
         pub fn asBytes(self: *const V5) *const [16]u8 {
@@ -706,6 +811,10 @@ pub const Uuid = packed union {
 
         pub fn toLittle(self: V6) u128 {
             return @byteSwap(@as(u128, @bitCast(self)));
+        }
+
+        pub fn toString(self: V6) [36]u8 {
+            return self.toUuid().toString();
         }
 
         pub fn asBytes(self: *const V6) *const [16]u8 {
@@ -828,6 +937,10 @@ pub const Uuid = packed union {
             return self.asBytes();
         }
 
+        pub fn toString(self: V7) [36]u8 {
+            return self.toUuid().toString();
+        }
+
         pub fn eql(self: V7, other: V7) bool {
             return std.mem.eql(u8, self.asBytes(), other.asBytes());
         }
@@ -912,6 +1025,10 @@ pub const Uuid = packed union {
             return @byteSwap(@as(u128, @bitCast(self)));
         }
 
+        pub fn toString(self: V8) [36]u8 {
+            return self.toUuid().toString();
+        }
+
         pub fn asBytes(self: *const V8) *const [16]u8 {
             return @ptrCast(self);
         }
@@ -967,13 +1084,8 @@ pub const Uuid = packed union {
         _ = fmt;
         _ = options;
 
-        const bytes = @as([16]u8, @bitCast(self));
-        try writer.print("{x:0>2}{x:0>2}{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}-{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}{x:0>2}", .{
-            bytes[0],  bytes[1],  bytes[2],  bytes[3],
-            bytes[4],  bytes[5],  bytes[6],  bytes[7],
-            bytes[8],  bytes[9],  bytes[10], bytes[11],
-            bytes[12], bytes[13], bytes[14], bytes[15],
-        });
+        const string = self.toString();
+        try writer.writeAll(&string);
     }
 
     pub const Clock = struct {
@@ -1140,7 +1252,7 @@ fn fieldBitOffset(comptime T: type, comptime field_name: []const u8) u16 {
 const test_allocator = std.testing.allocator;
 
 test "RFC9562 Test Vector A.1" {
-    const uuid = Uuid.fromNative(0xC232AB00_9414_11EC_B3C8_9F6BDECED846);
+    const uuid = try Uuid.parse("c232ab00-9414-11ec-b3c8-9f6bdeced846");
     const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
     defer test_allocator.free(formatted);
 
@@ -1158,7 +1270,7 @@ test "RFC9562 Test Vector A.1" {
 }
 
 test "RFC9562 Test Vector A.2" {
-    const ns = Uuid.fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
+    const ns = try Uuid.parse("6ba7b810-9dad-11d1-80b4-00c04fd430c8");
     const uuid = Uuid{ .v3 = .init(ns, "www.example.com") };
 
     const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
@@ -1176,7 +1288,7 @@ test "RFC9562 Test Vector A.2" {
 }
 
 test "RFC9562 Test Vector A.3" {
-    const uuid = Uuid.fromNative(0x919108f7_52d1_4320_9bac_f847db4148a8);
+    const uuid = try Uuid.parse("919108f7-52d1-4320-9bac-f847db4148a8");
     const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
     defer test_allocator.free(formatted);
 
@@ -1192,7 +1304,7 @@ test "RFC9562 Test Vector A.3" {
 }
 
 test "RFC9562 Test Vector A.4" {
-    const ns = Uuid.fromNative(0x6ba7b810_9dad_11d1_80b4_00c04fd430c8);
+    const ns = try Uuid.parse("6ba7b810-9dad-11d1-80b4-00c04fd430c8");
     const uuid = Uuid{ .v5 = .init(ns, "www.example.com") };
 
     const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
@@ -1210,7 +1322,7 @@ test "RFC9562 Test Vector A.4" {
 }
 
 test "RFC9562 Test Vector A.5" {
-    const uuid = Uuid.fromNative(0x1EC9414C_232A_6B00_B3C8_9F6BDECED846);
+    const uuid = try Uuid.parse("1ec9414c-232a-6b00-b3c8-9f6bdeced846");
     const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
     defer test_allocator.free(formatted);
 
@@ -1228,7 +1340,7 @@ test "RFC9562 Test Vector A.5" {
 }
 
 test "RFC9562 Test Vector A.6" {
-    const uuid = Uuid.fromNative(0x017F22E2_79B0_7CC3_98C4_DC0C0C07398F);
+    const uuid = try Uuid.parse("017f22e2-79b0-7cc3-98c4-dc0c0c07398f");
     const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
     defer test_allocator.free(formatted);
 
@@ -1244,7 +1356,7 @@ test "RFC9562 Test Vector A.6" {
 }
 
 test "RFC9562 Test Vector B.1" {
-    const uuid = Uuid.fromNative(0x2489E9AD_2EE2_8E00_8EC9_32D5F69181C0);
+    const uuid = try Uuid.parse("2489e9ad-2ee2-8e00-8ec9-32d5f69181c0");
     const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
     defer test_allocator.free(formatted);
 
@@ -1260,7 +1372,7 @@ test "RFC9562 Test Vector B.1" {
 }
 
 test "RFC9562 Test Vector B.2" {
-    const uuid = Uuid.fromNative(0x5c146b14_3c52_8afd_938a_375d0df1fbf6);
+    const uuid = try Uuid.parse("5c146b14-3c52-8afd-938a-375d0df1fbf6");
     const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
     defer test_allocator.free(formatted);
 

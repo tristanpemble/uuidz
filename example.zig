@@ -2,6 +2,10 @@ const std = @import("std");
 const Uuid = @import("uuidz").Uuid;
 
 pub fn main() !void {
+    // Parse UUID
+    const uuid = try Uuid.parse("c232ab00-9414-11ec-b3c8-9f6bdeced846");
+    std.debug.print("bytes: {any}\n", .{uuid.asSlice()});
+
     // Random UUID
     const v4 = Uuid{ .v4 = .init() };
     std.debug.print("v4: {}\n", .{v4});

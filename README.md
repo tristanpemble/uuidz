@@ -33,6 +33,9 @@ exe.root_module.addImport("uuidz", uuidz.module("uuidz"));
 ```zig
 const Uuid = @import("uuidz").Uuid;
 
+// Parse a string
+const uuid = try Uuid.parse("c232ab00-9414-11ec-b3c8-9f6bdeced846");
+
 // Typed versions to accept only one version
 const t1: Uuid.V1 = .now(0x001122334455);
 const t3: Uuid.V3 = .init(.dns, "tristanpemble.com");
@@ -150,12 +153,15 @@ Single-threaded comparison:
   Overhead: 9.5%
 
 Multi-threaded performance:
-  2 threads: 22727273 ops/sec (44 ns/op) - 1.9x slower
-  4 threads: 9708738 ops/sec (103 ns/op) - 4.5x slower
-  8 threads: 5952381 ops/sec (168 ns/op) - 7.3x slower
+  2 threads: 21739130 ops/sec (46 ns/op) - 2.0x slower
+  4 threads: 9900990 ops/sec (101 ns/op) - 4.4x slower
+  8 threads: 5681818 ops/sec (176 ns/op) - 7.7x slower
 
 Stress test:
-  32 threads with contention: 1988072 ops/sec (503 ns/op)
+  32 threads with contention: 2024291 ops/sec (494 ns/op)
+
+Parsing benchmark:
+  Parse: 76923077 ops/sec (13 ns/op)
 ```
 
 ## License

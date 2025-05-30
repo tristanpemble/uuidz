@@ -28,6 +28,9 @@ pub fn main() !void {
 
     std.debug.print("\nStress test:\n", .{});
     try benchmarkStressTest(allocator);
+
+    std.debug.print("\nParsing benchmark:\n", .{});
+    try benchmarkParsing(allocator);
 }
 
 fn benchmarkSingleThreaded() !u64 {
@@ -149,4 +152,31 @@ fn benchmarkStressTest(allocator: std.mem.Allocator) !void {
     const ops_per_sec = @as(f64, std.time.ns_per_s) / @as(f64, @floatFromInt(ns_per_op));
 
     std.debug.print("  {} threads with contention: {d:.0} ops/sec ({} ns/op)\n", .{ thread_count, ops_per_sec, ns_per_op });
+}
+
+fn benchmarkParsing(allocator: std.mem.Allocator) !void {
+    var seq = Uuid.LocalClockSequence(Uuid.V7.Timestamp){
+        .clock = .system,
+        .rand = std.crypto.random,
+    };
+
+    const uuid_strings = try allocator.alloc([36]u8, ITERATIONS);
+    defer allocator.free(uuid_strings);
+
+    for (0..ITERATIONS) |i| {
+        const uuid = Uuid.V7.init(seq.next());
+        uuid_strings[i] = uuid.toString();
+    }
+
+    var timer = try std.time.Timer.start();
+
+    for (uuid_strings) |uuid_str| {
+        _ = Uuid.parse(&uuid_str) catch unreachable;
+    }
+
+    const elapsed_ns = timer.read();
+    const ns_per_op = elapsed_ns / ITERATIONS;
+    const ops_per_sec = @as(f64, std.time.ns_per_s) / @as(f64, @floatFromInt(ns_per_op));
+
+    std.debug.print("  Parse: {d:.0} ops/sec ({} ns/op)\n", .{ ops_per_sec, ns_per_op });
 }
