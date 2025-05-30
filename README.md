@@ -2,7 +2,7 @@
 
 [RFC 9562](https://datatracker.ietf.org/doc/html/rfc9562) compliant UUID implementation for Zig.
 
-## Design
+## About
 
 - **Version support**: Implements all UUID versions including the latest v6, v7, and v8
 - **Type safety**: Use the `Uuid` union to accept any version, or `Uuid.V7` to only accept V7 UUIDs
@@ -14,6 +14,10 @@
 - **Zero dependencies**: Uses only Zig's standard library
 
 The design is heavily influenced by the Rust [uuid](https://github.com/uuid-rs/uuid) crate, with some Zig specific flavoring.
+
+## Documentation
+
+See the [API reference documentation](https://tristanpemble.github.io/uuidz/) on the GitHub pages.
 
 ## Installation
 
