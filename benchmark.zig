@@ -111,8 +111,7 @@ const Stats = struct {
 
 fn benchmarkFunction(comptime name: []const u8, comptime thread_count: u32, work_fn: *const fn (u32) void) void {
     var samples: [SAMPLES]u64 = undefined;
-    const total_ops = RUNS * thread_count;
-    const ops_per_sample = total_ops / SAMPLES;
+    const ops_per_sample = RUNS / SAMPLES;
 
     // Warmup phase to avoid cold-start effects
     if (thread_count == 1) {
@@ -225,7 +224,7 @@ fn benchmarkFunction(comptime name: []const u8, comptime thread_count: u32, work
     const result = BenchmarkResult{
         .name = name,
         .threads = thread_count,
-        .total_ops = total_ops,
+        .total_ops = RUNS,
         .samples = samples,
     };
     result.calculate().print();

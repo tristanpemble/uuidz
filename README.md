@@ -169,28 +169,28 @@ On my AMD Ryzen 9 5950X, the results are:
 ```
 benchmark        n  runs        total     avg ±     σ   min ...   max     p75    p99   p995
 -------------------------------------------------------------------------------------------
-uuidz.parse      1  1000000   169.9ms     2ms ±  52us   2ms ...   2ms     2ms    2ms    2ms
-uuidz.toString   1  1000000     7.1ms    71us ±   3us  67us ... 102us    71us  102us  102us
-uuidz.V1 fast    1  1000000    28.7ms   287us ±   3us 281us ... 293us   289us  293us  293us
-uuidz.V1 safe    1  1000000    62.9ms   629us ±   4us 619us ... 642us   632us  642us  642us
-uuidz.V1 safe    2  2000000   210.0ms     2ms ± 467us   2ms ...   3ms     2ms    3ms    3ms
-uuidz.V1 safe    4  4000000   563.5ms     6ms ± 688us   4ms ...   7ms     6ms    7ms    7ms
-uuidz.V1 safe    8  8000000     1.7s     17ms ± 679us  14ms ...  18ms    17ms   18ms   18ms
-uuidz.V3         1  1000000    84.6ms   846us ±  12us 836us ... 963us   848us  963us  963us
-uuidz.V4         1  1000000     9.4ms    94us ±   2us  93us ... 100us    94us  100us  100us
-uuidz.V5         1  1000000    76.2ms   762us ±   5us 749us ... 786us   765us  786us  786us
-uuidz.V6 fast    1  1000000    28.8ms   288us ±   3us 284us ... 297us   291us  297us  297us
-uuidz.V6 safe    1  1000000    63.1ms   631us ±   3us 625us ... 638us   633us  638us  638us
-uuidz.V6 safe    2  2000000   220.1ms     2ms ± 442us   2ms ...   3ms     3ms    3ms    3ms
-uuidz.V6 safe    4  4000000   552.9ms     6ms ± 832us   4ms ...   7ms     6ms    7ms    7ms
-uuidz.V6 safe    8  8000000     1.8s     18ms ± 371us  16ms ...  18ms    18ms   18ms   18ms
-uuidz.V7 fast    1  1000000    37.8ms   378us ±   4us 374us ... 397us   381us  397us  397us
-uuidz.V7 safe    1  1000000    51.4ms   514us ±   3us 507us ... 525us   516us  525us  525us
-uuidz.V7 safe    2  2000000   213.8ms     2ms ± 423us   1ms ...   3ms     2ms    3ms    3ms
-uuidz.V7 safe    4  4000000   502.6ms     5ms ± 657us   4ms ...   7ms     5ms    7ms    7ms
-uuidz.V7 safe    8  8000000     1.6s     16ms ± 971us  13ms ...  18ms    16ms   18ms   18ms
-uuid_zig.V4      1  1000000     9.2ms    92us ±   6us  89us ... 127us    91us  127us  127us
-uuid_zig.V7      1  1000000    34.5ms   345us ±  13us 333us ... 405us   352us  405us  405us
+uuidz.parse      1  1000000   174.8ms     2ms ±  99us   2ms ...   2ms     2ms    2ms    2ms
+uuidz.toString   1  1000000     7.2ms    72us ±   8us  66us ... 116us    70us  116us  116us
+uuidz.V1 fast    1  1000000    28.6ms   286us ±   5us 279us ... 301us   288us  301us  301us
+uuidz.V1 safe    1  1000000    64.1ms   641us ±  27us 619us ... 766us   646us  766us  766us
+uuidz.V1 safe    2  1000000    99.4ms   994us ± 213us 803us ...   2ms     1ms    2ms    2ms
+uuidz.V1 safe    4  1000000   143.7ms     1ms ± 165us 989us ...   2ms     2ms    2ms    2ms
+uuidz.V1 safe    8  1000000   197.8ms     2ms ± 192us   1ms ...   2ms     2ms    2ms    2ms
+uuidz.V3         1  1000000    86.9ms   869us ±  63us 824us ...   1ms   864us    1ms    1ms
+uuidz.V4         1  1000000    10.0ms   100us ±  15us  91us ... 151us   100us  151us  151us
+uuidz.V5         1  1000000    75.3ms   753us ±   6us 737us ... 772us   756us  772us  772us
+uuidz.V6 fast    1  1000000    28.8ms   288us ±   3us 283us ... 299us   290us  299us  299us
+uuidz.V6 safe    1  1000000    63.2ms   632us ±   4us 623us ... 657us   634us  657us  657us
+uuidz.V6 safe    2  1000000   103.8ms     1ms ± 198us 855us ...   2ms     1ms    2ms    2ms
+uuidz.V6 safe    4  1000000   145.1ms     1ms ± 155us 954us ...   2ms     2ms    2ms    2ms
+uuidz.V6 safe    8  1000000   207.2ms     2ms ± 122us   2ms ...   2ms     2ms    2ms    2ms
+uuidz.V7 fast    1  1000000    39.5ms   395us ±  35us 366us ... 500us   408us  500us  500us
+uuidz.V7 safe    1  1000000    51.1ms   511us ±   4us 503us ... 525us   514us  525us  525us
+uuidz.V7 safe    2  1000000    85.0ms   850us ± 136us 699us ...   1ms   889us    1ms    1ms
+uuidz.V7 safe    4  1000000   143.7ms     1ms ± 190us 995us ...   2ms     2ms    2ms    2ms
+uuidz.V7 safe    8  1000000   179.1ms     2ms ± 119us   1ms ...   2ms     2ms    2ms    2ms
+uuid_zig.V4      1  1000000     9.2ms    92us ±  13us  84us ... 181us    93us  181us  181us
+uuid_zig.V7      1  1000000    36.6ms   366us ±  31us 346us ... 478us   369us  478us  478us
 ```
 
 ## License
