@@ -164,31 +164,33 @@ In case you care about generating UUIDs faster than you can put them anywhere, t
 zig build bench
 ```
 
-On my MacBook Pro M4 Max, the results are:
+On my AMD Ryzen 9 5950X, the results are:
 
 ```
 benchmark        n  runs        total     avg ±     σ   min ...   max     p75    p99   p995
 -------------------------------------------------------------------------------------------
-Uuid.parse       1  100000      2.0us    20ns ±   6ns  18ns ...  81ns    19ns   81ns   81ns
-Uuid.toString    1  100000    434.0ns     4ns ±   0ns   4ns ...   6ns     5ns    6ns    6ns
-Uuid.V1 fast     1  100000      2.5us    24ns ±   1ns  24ns ...  32ns    25ns   32ns   32ns
-Uuid.V1 safe     1  100000     24.5us   244ns ±   6ns 232ns ... 260ns   250ns  260ns  260ns
-Uuid.V1 safe     2  200000     40.9us   408ns ±  12ns 379ns ... 441ns   417ns  441ns  441ns
-Uuid.V1 safe     4  400000     39.0us   390ns ±  20ns 368ns ... 499ns   393ns  499ns  499ns
-Uuid.V1 safe     8  800000     47.0us   469ns ±  21ns 424ns ... 523ns   488ns  523ns  523ns
-Uuid.V3          1  100000    636.0ns     6ns ±   0ns   6ns ...   7ns     7ns    7ns    7ns
-Uuid.V4          1  100000      8.0us    80ns ±   1ns  78ns ...  95ns    80ns   95ns   95ns
-Uuid.V5          1  100000    621.0ns     6ns ±   0ns   6ns ...   8ns     6ns    8ns    8ns
-Uuid.V6 fast     1  100000      2.5us    25ns ±   1ns  25ns ...  31ns    25ns   31ns   31ns
-Uuid.V6 safe     1  100000     24.7us   246ns ±   6ns 235ns ... 270ns   250ns  270ns  270ns
-Uuid.V6 safe     2  200000     40.5us   404ns ±  11ns 377ns ... 438ns   413ns  438ns  438ns
-Uuid.V6 safe     4  400000     38.7us   387ns ±  16ns 368ns ... 501ns   390ns  501ns  501ns
-Uuid.V6 safe     8  800000     46.7us   467ns ±  23ns 427ns ... 517ns   484ns  517ns  517ns
-Uuid.V7 fast     1  100000      2.4us    24ns ±   1ns  23ns ...  30ns    24ns   30ns   30ns
-Uuid.V7 safe     1  100000      5.8us    57ns ±   2ns  57ns ...  83ns    57ns   83ns   83ns
-Uuid.V7 safe     2  200000     14.4us   144ns ±   8ns  96ns ... 166ns   149ns  166ns  166ns
-Uuid.V7 safe     4  400000     19.0us   190ns ±   9ns 176ns ... 231ns   192ns  231ns  231ns
-Uuid.V7 safe     8  800000     20.0us   199ns ±   8ns 178ns ... 221ns   207ns  221ns  221ns
+uuidz.parse      1  1000000   169.9ms     2ms ±  52us   2ms ...   2ms     2ms    2ms    2ms
+uuidz.toString   1  1000000     7.1ms    71us ±   3us  67us ... 102us    71us  102us  102us
+uuidz.V1 fast    1  1000000    28.7ms   287us ±   3us 281us ... 293us   289us  293us  293us
+uuidz.V1 safe    1  1000000    62.9ms   629us ±   4us 619us ... 642us   632us  642us  642us
+uuidz.V1 safe    2  2000000   210.0ms     2ms ± 467us   2ms ...   3ms     2ms    3ms    3ms
+uuidz.V1 safe    4  4000000   563.5ms     6ms ± 688us   4ms ...   7ms     6ms    7ms    7ms
+uuidz.V1 safe    8  8000000     1.7s     17ms ± 679us  14ms ...  18ms    17ms   18ms   18ms
+uuidz.V3         1  1000000    84.6ms   846us ±  12us 836us ... 963us   848us  963us  963us
+uuidz.V4         1  1000000     9.4ms    94us ±   2us  93us ... 100us    94us  100us  100us
+uuidz.V5         1  1000000    76.2ms   762us ±   5us 749us ... 786us   765us  786us  786us
+uuidz.V6 fast    1  1000000    28.8ms   288us ±   3us 284us ... 297us   291us  297us  297us
+uuidz.V6 safe    1  1000000    63.1ms   631us ±   3us 625us ... 638us   633us  638us  638us
+uuidz.V6 safe    2  2000000   220.1ms     2ms ± 442us   2ms ...   3ms     3ms    3ms    3ms
+uuidz.V6 safe    4  4000000   552.9ms     6ms ± 832us   4ms ...   7ms     6ms    7ms    7ms
+uuidz.V6 safe    8  8000000     1.8s     18ms ± 371us  16ms ...  18ms    18ms   18ms   18ms
+uuidz.V7 fast    1  1000000    37.8ms   378us ±   4us 374us ... 397us   381us  397us  397us
+uuidz.V7 safe    1  1000000    51.4ms   514us ±   3us 507us ... 525us   516us  525us  525us
+uuidz.V7 safe    2  2000000   213.8ms     2ms ± 423us   1ms ...   3ms     2ms    3ms    3ms
+uuidz.V7 safe    4  4000000   502.6ms     5ms ± 657us   4ms ...   7ms     5ms    7ms    7ms
+uuidz.V7 safe    8  8000000     1.6s     16ms ± 971us  13ms ...  18ms    16ms   18ms   18ms
+uuid_zig.V4      1  1000000     9.2ms    92us ±   6us  89us ... 127us    91us  127us  127us
+uuid_zig.V7      1  1000000    34.5ms   345us ±  13us 333us ... 405us   352us  405us  405us
 ```
 
 ## License

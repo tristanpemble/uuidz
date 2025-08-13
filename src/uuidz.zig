@@ -718,13 +718,9 @@ pub const Uuid = packed union {
 
         /// Create a V4 UUID with cryptographic random data.
         pub fn init(rand: Random) V4 {
-            var self: V4 = undefined;
-
-            writeField(V4, "random_c", &self, rand.int(u62));
+            var self: V4 = @bitCast(rand.int(u128));
             writeField(V4, "variant", &self, 0b10);
-            writeField(V4, "random_b", &self, rand.int(u12));
             writeField(V4, "version", &self, 4);
-            writeField(V4, "random_a", &self, rand.int(u48));
 
             return self;
         }
@@ -1539,19 +1535,19 @@ pub const Uuid = packed union {
     }
 };
 
-fn readField(comptime T: type, comptime field_name: []const u8, uuid: *const T) @FieldType(T, field_name) {
+inline fn readField(comptime T: type, comptime field_name: []const u8, uuid: *const T) @FieldType(T, field_name) {
     const bytes = @as(*const [@sizeOf(T)]u8, @ptrCast(uuid));
-    const offset = fieldBitOffset(T, field_name);
-    return std.mem.readPackedInt(@FieldType(T, field_name), bytes, offset, .big);
+    const offset = comptime fieldBitOffset(T, field_name);
+    return @call(.always_inline, std.mem.readPackedInt, .{ @FieldType(T, field_name), bytes, offset, .big });
 }
 
-fn writeField(comptime T: type, comptime field_name: []const u8, uuid: *T, value: @FieldType(T, field_name)) void {
+inline fn writeField(comptime T: type, comptime field_name: []const u8, uuid: *T, value: @FieldType(T, field_name)) void {
     const bytes = @as(*[@sizeOf(T)]u8, @ptrCast(uuid));
-    const offset = fieldBitOffset(T, field_name);
-    std.mem.writePackedInt(@FieldType(T, field_name), bytes, offset, value, .big);
+    const offset = comptime fieldBitOffset(T, field_name);
+    @call(.always_inline, std.mem.writePackedInt, .{ @FieldType(T, field_name), bytes, offset, value, .big });
 }
 
-fn fieldBitOffset(comptime T: type, comptime field_name: []const u8) u16 {
+inline fn fieldBitOffset(comptime T: type, comptime field_name: []const u8) u16 {
     const fields = std.meta.fields(T);
     comptime var offset = 0;
 

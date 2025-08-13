@@ -4,7 +4,12 @@
     .fingerprint = 0x5db60e228db2be64,
     .minimum_zig_version = "0.14.1",
 
-    .dependencies = .{},
+    .dependencies = .{
+        .uuid_zig = .{
+            .url = "git+https://github.com/r4gus/uuid-zig#58ed00d4df6b08ca2570602758c486989d019693",
+            .hash = "uuid-0.3.2-oOieIY54AACgyWA1nI8rtVBRqHwAg2DPnuKiM2FycatZ",
+        },
+    },
 
     .paths = .{
         "build.zig",

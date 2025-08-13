@@ -1,8 +1,10 @@
 const std = @import("std");
-const Uuid = @import("src/root.zig").Uuid;
+const Uuid = @import("src/uuidz.zig").Uuid;
+const uuid_zig = @import("uuid_zig");
 
-const RUNS = 100_000;
+const RUNS = 1_000_000;
 const SAMPLES = 100;
+const WARMUP_RUNS = 1000;
 
 const BenchmarkResult = struct {
     name: []const u8,
@@ -63,11 +65,11 @@ const Stats = struct {
 
     fn formatTime(ns: u64) struct { value: f64, unit: []const u8 } {
         if (ns >= 1_000_000_000) {
-            return .{ .value = @as(f64, @floatFromInt(ns)) / 1_000_000_000.0, .unit = "s" };
+            return .{ .value = @as(f64, @floatFromInt(ns)) / std.time.ns_per_s, .unit = "s" };
         } else if (ns >= 1_000_000) {
-            return .{ .value = @as(f64, @floatFromInt(ns)) / 1_000_000.0, .unit = "ms" };
+            return .{ .value = @as(f64, @floatFromInt(ns)) / std.time.ns_per_ms, .unit = "ms" };
         } else if (ns >= 1_000) {
-            return .{ .value = @as(f64, @floatFromInt(ns)) / 1_000.0, .unit = "us" };
+            return .{ .value = @as(f64, @floatFromInt(ns)) / std.time.ns_per_us, .unit = "us" };
         } else {
             return .{ .value = @as(f64, @floatFromInt(ns)), .unit = "ns" };
         }
@@ -112,18 +114,18 @@ fn benchmarkFunction(comptime name: []const u8, comptime thread_count: u32, work
     const total_ops = RUNS * thread_count;
     const ops_per_sample = total_ops / SAMPLES;
 
+    // Warmup phase to avoid cold-start effects
     if (thread_count == 1) {
-        for (0..SAMPLES) |i| {
-            var timer = std.time.Timer.start() catch unreachable;
-            for (0..ops_per_sample) |j| {
-                work_fn(@as(u32, @intCast(j)));
-            }
-            samples[i] = timer.read() / ops_per_sample;
+        // Single-threaded warmup
+        for (0..WARMUP_RUNS) |j| {
+            work_fn(@as(u32, @intCast(j)));
         }
     } else {
-        const ops_per_thread = ops_per_sample / thread_count;
+        // Multi-threaded warmup
+        const warmup_per_thread = WARMUP_RUNS / thread_count;
+        var warmup_threads: [thread_count]std.Thread = undefined;
 
-        const WorkerContext = struct {
+        const WarmupContext = struct {
             work_fn: *const fn (u32) void,
             ops_count: u32,
 
@@ -134,24 +136,89 @@ fn benchmarkFunction(comptime name: []const u8, comptime thread_count: u32, work
             }
         };
 
+        for (0..thread_count) |t| {
+            const context = WarmupContext{
+                .work_fn = work_fn,
+                .ops_count = warmup_per_thread,
+            };
+            warmup_threads[t] = std.Thread.spawn(.{}, WarmupContext.run, .{context}) catch unreachable;
+        }
+
+        for (0..thread_count) |t| {
+            warmup_threads[t].join();
+        }
+    }
+
+    if (thread_count == 1) {
+        for (0..SAMPLES) |i| {
+            var timer = std.time.Timer.start() catch unreachable;
+            for (0..ops_per_sample) |j| {
+                work_fn(@as(u32, @intCast(j)));
+            }
+            samples[i] = timer.read();
+        }
+    } else {
+        const ops_per_thread = ops_per_sample / thread_count;
+
+        const WorkerContext = struct {
+            work_fn: *const fn (u32) void,
+            ops_count: u32,
+            timer: *std.time.Timer,
+            ready: *std.Thread.ResetEvent,
+            done: *std.Thread.ResetEvent,
+
+            fn run(self: @This()) void {
+                // Wait for all threads to be created
+                self.ready.wait();
+
+                // Start timing only the actual work
+                self.timer.reset();
+                for (0..self.ops_count) |j| {
+                    self.work_fn(@as(u32, @intCast(j)));
+                }
+
+                // Signal completion
+                self.done.set();
+            }
+        };
+
         for (0..SAMPLES) |i| {
             var threads: [8]std.Thread = undefined;
-
             var timer = std.time.Timer.start() catch unreachable;
+            var ready = std.Thread.ResetEvent{};
+            var done_events: [8]std.Thread.ResetEvent = undefined;
 
+            for (0..thread_count) |t| {
+                done_events[t] = std.Thread.ResetEvent{};
+            }
+
+            // Create all threads first (not timed)
             for (0..thread_count) |t| {
                 const context = WorkerContext{
                     .work_fn = work_fn,
                     .ops_count = ops_per_thread,
+                    .timer = &timer,
+                    .ready = &ready,
+                    .done = &done_events[t],
                 };
                 threads[t] = std.Thread.spawn(.{}, WorkerContext.run, .{context}) catch unreachable;
             }
 
+            // Signal all threads to start work simultaneously
+            ready.set();
+
+            // Wait for all threads to complete
+            for (0..thread_count) |t| {
+                done_events[t].wait();
+            }
+
+            // Read the timer after all work is done
+            samples[i] = timer.read();
+
+            // Clean up threads
             for (0..thread_count) |t| {
                 threads[t].join();
             }
-
-            samples[i] = timer.read() / ops_per_sample;
         }
     }
 
@@ -165,55 +232,64 @@ fn benchmarkFunction(comptime name: []const u8, comptime thread_count: u32, work
 }
 
 fn v1Benchmark(_: u32) void {
-    _ = Uuid.V1.now(0x001122334455);
+    const id = Uuid.V1.now(0x001122334455);
+    std.mem.doNotOptimizeAway(id);
 }
 
 fn v3Benchmark(idx: u32) void {
     const test_strings = [_][]const u8{ "example.com", "test.org", "benchmark.net", "uuid.dev", "random.io" };
     const str = test_strings[idx % test_strings.len];
-    _ = Uuid.V3.init(.dns, str);
+    const id = Uuid.V3.init(.dns, str);
+    std.mem.doNotOptimizeAway(id);
 }
 
 fn v4Benchmark(_: u32) void {
-    _ = Uuid.V4.init(std.crypto.random);
+    const id = Uuid.V4.init(std.crypto.random);
+    std.mem.doNotOptimizeAway(id);
 }
 
 fn v5Benchmark(idx: u32) void {
     const test_strings = [_][]const u8{ "example.com", "test.org", "benchmark.net", "uuid.dev", "random.io" };
     const str = test_strings[idx % test_strings.len];
-    _ = Uuid.V5.init(.dns, str);
+    const id = Uuid.V5.init(.dns, str);
+    std.mem.doNotOptimizeAway(id);
 }
 
 fn v6Benchmark(_: u32) void {
-    _ = Uuid.V6.now(0x001122334455);
+    const id = Uuid.V6.now(0x001122334455);
+    std.mem.doNotOptimizeAway(id);
 }
 
 fn v7Benchmark(_: u32) void {
-    _ = Uuid.V7.now();
+    const id = Uuid.V7.now();
+    std.mem.doNotOptimizeAway(id);
 }
 
-// FastClockSequence benchmarks
 var v1_fast_seq = Uuid.FastClockSequence(Uuid.V1.Timestamp){ .clock = .system };
 var v6_fast_seq = Uuid.FastClockSequence(Uuid.V6.Timestamp){ .clock = .system };
 var v7_fast_seq = Uuid.FastClockSequence(Uuid.V7.Timestamp){ .clock = .system };
 
 fn v1FastBenchmark(_: u32) void {
-    _ = Uuid.V1.init(.fast(), 0x001122334455);
+    const id = Uuid.V1.init(.fast(), 0x001122334455);
+    std.mem.doNotOptimizeAway(id);
 }
 
 fn v6FastBenchmark(_: u32) void {
-    _ = Uuid.V6.init(.fast(), 0x001122334455);
+    const id = Uuid.V6.init(.fast(), 0x001122334455);
+    std.mem.doNotOptimizeAway(id);
 }
 
 fn v7FastBenchmark(_: u32) void {
-    _ = Uuid.V7.init(.fast());
+    const id = Uuid.V7.init(.fast());
+    std.mem.doNotOptimizeAway(id);
 }
 
 var parse_strings: [1000][36]u8 = undefined;
 var parse_initialized = false;
 
 fn parseBenchmark(idx: u32) void {
-    _ = Uuid.parse(&parse_strings[idx % parse_strings.len]) catch unreachable;
+    const id = Uuid.parse(&parse_strings[idx % parse_strings.len]) catch unreachable;
+    std.mem.doNotOptimizeAway(id);
 }
 
 var toString_uuids: [1000]Uuid = undefined;
@@ -222,6 +298,16 @@ var toString_initialized = false;
 fn toStringBenchmark(idx: u32) void {
     const str = toString_uuids[idx % toString_uuids.len].toString();
     std.mem.doNotOptimizeAway(&str);
+}
+
+fn uuidZigV4Benchmark(_: u32) void {
+    const id = uuid_zig.v4.new();
+    std.mem.doNotOptimizeAway(id);
+}
+
+fn uuidZigV7Benchmark(_: u32) void {
+    const id = uuid_zig.v7.new();
+    std.mem.doNotOptimizeAway(id);
 }
 
 pub fn main() !void {
@@ -235,7 +321,7 @@ pub fn main() !void {
         }
         parse_initialized = true;
     }
-    benchmarkFunction("Uuid.parse", 1, parseBenchmark);
+    benchmarkFunction("uuidz.parse", 1, parseBenchmark);
 
     if (!toString_initialized) {
         for (0..toString_uuids.len) |i| {
@@ -243,24 +329,27 @@ pub fn main() !void {
         }
         toString_initialized = true;
     }
-    benchmarkFunction("Uuid.toString", 1, toStringBenchmark);
+    benchmarkFunction("uuidz.toString", 1, toStringBenchmark);
 
-    benchmarkFunction("Uuid.V1 fast", 1, v1FastBenchmark);
+    benchmarkFunction("uuidz.V1 fast", 1, v1FastBenchmark);
     inline for ([_]u32{ 1, 2, 4, 8 }) |thread_count| {
-        benchmarkFunction("Uuid.V1 safe", thread_count, v1Benchmark);
+        benchmarkFunction("uuidz.V1 safe", thread_count, v1Benchmark);
     }
 
-    benchmarkFunction("Uuid.V3", 1, v3Benchmark);
-    benchmarkFunction("Uuid.V4", 1, v4Benchmark);
-    benchmarkFunction("Uuid.V5", 1, v5Benchmark);
+    benchmarkFunction("uuidz.V3", 1, v3Benchmark);
+    benchmarkFunction("uuidz.V4", 1, v4Benchmark);
+    benchmarkFunction("uuidz.V5", 1, v5Benchmark);
 
-    benchmarkFunction("Uuid.V6 fast", 1, v6FastBenchmark);
+    benchmarkFunction("uuidz.V6 fast", 1, v6FastBenchmark);
     inline for ([_]u32{ 1, 2, 4, 8 }) |thread_count| {
-        benchmarkFunction("Uuid.V6 safe", thread_count, v6Benchmark);
+        benchmarkFunction("uuidz.V6 safe", thread_count, v6Benchmark);
     }
 
-    benchmarkFunction("Uuid.V7 fast", 1, v7FastBenchmark);
+    benchmarkFunction("uuidz.V7 fast", 1, v7FastBenchmark);
     inline for ([_]u32{ 1, 2, 4, 8 }) |thread_count| {
-        benchmarkFunction("Uuid.V7 safe", thread_count, v7Benchmark);
+        benchmarkFunction("uuidz.V7 safe", thread_count, v7Benchmark);
     }
+
+    benchmarkFunction("uuid_zig.V4", 1, uuidZigV4Benchmark);
+    benchmarkFunction("uuid_zig.V7", 1, uuidZigV7Benchmark);
 }

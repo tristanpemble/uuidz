@@ -5,7 +5,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const mod = b.addModule("uuidz", .{
-        .root_source_file = b.path("src/root.zig"),
+        .root_source_file = b.path("src/uuidz.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -39,7 +39,9 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = .ReleaseFast,
     });
+    const uuid_zig = b.dependency("uuid_zig", .{});
     benchmark.root_module.addImport("uuidz", mod);
+    benchmark.root_module.addImport("uuid_zig", uuid_zig.module("uuid"));
     b.installArtifact(benchmark);
 
     const run_benchmark = b.addRunArtifact(benchmark);
