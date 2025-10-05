@@ -21,9 +21,11 @@ pub fn build(b: *std.Build) void {
     // Example
     const example = b.addExecutable(.{
         .name = "example",
-        .root_source_file = b.path("example.zig"),
-        .target = target,
-        .optimize = optimize,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("example.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     example.root_module.addImport("uuidz", mod);
     b.installArtifact(example);
@@ -35,9 +37,11 @@ pub fn build(b: *std.Build) void {
     // Benchmark
     const benchmark = b.addExecutable(.{
         .name = "benchmark",
-        .root_source_file = b.path("benchmark.zig"),
-        .target = target,
-        .optimize = .ReleaseFast,
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("benchmark.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
     });
     const uuid_zig = b.dependency("uuid_zig", .{});
     benchmark.root_module.addImport("uuidz", mod);
