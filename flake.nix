@@ -1,45 +1,40 @@
 {
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs?ref=nixos-unstable";
+    zig.url = "github:mitchellh/zig-overlay";
+    zig.inputs.nixpkgs.follows = "nixpkgs";
+    zls.url = "github:zigtools/zls";
+    zls.inputs.nixpkgs.follows = "nixpkgs";
+    zls.inputs.zig-overlay.follows = "zig";
   };
 
   outputs = {
-    self,
     nixpkgs,
+    zig,
+    zls,
+    ...
   }: let
     supportedSystems = ["x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin"];
     forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
-    nixpkgsFor = forAllSystems (system: import nixpkgs {inherit system;});
+    nixpkgsFor = forAllSystems (system:
+      import nixpkgs {
+        inherit system;
+      });
   in {
-    packages = forAllSystems (
-      system: let
-        pkgs = nixpkgsFor.${system};
-      in {
-        default = pkgs.stdenv.mkDerivation {
-          name = "zig-project";
-          src = self;
-          buildInputs = [pkgs.zig];
-          buildPhase = ''
-            export ZIG_GLOBAL_CACHE_DIR=$(mktemp -d)
-            zig build
-          '';
-          installPhase = ''
-            mkdir -p $out/lib
-            cp zig-out/lib/* $out/lib/
-          '';
-        };
-      }
-    );
-
     devShells = forAllSystems (
       system: let
         pkgs = nixpkgsFor.${system};
+        zigPinned = zig.packages.${system}."0.15.1";
+        zlsPinned = zls.packages.${system}.zls.overrideAttrs (prev: {
+          buildInputs = [zigPinned];
+        });
       in {
         default = pkgs.mkShell {
-          buildInputs = [
-            pkgs.zig
-            pkgs.zls
-          ];
+          buildInputs =
+            [
+              zigPinned
+              zlsPinned
+            ];
         };
       }
     );

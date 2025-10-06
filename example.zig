@@ -8,19 +8,19 @@ pub fn main() !void {
 
     // Random UUID
     const v4 = Uuid{ .v4 = .init(std.crypto.random) };
-    std.debug.print("v4: {}\n", .{v4});
+    std.debug.print("v4: {f}\n", .{v4});
 
     // Time-based UUID
     const v7 = Uuid{ .v7 = .now() };
-    std.debug.print("v7: {}\n", .{v7});
+    std.debug.print("v7: {f}\n", .{v7});
 
     // Name-based UUID
     const v5 = Uuid{ .v5 = .init(.dns, "example.com") };
-    std.debug.print("v5: {}\n", .{v5});
+    std.debug.print("v5: {f}\n", .{v5});
 
     // MAC + timestamp
     const v1 = Uuid{ .v1 = .now(0x001122334455) };
-    std.debug.print("v1: {}\n", .{v1});
+    std.debug.print("v1: {f}\n", .{v1});
 
     // Format conversions
     const bytes = v4.toBytes();
@@ -33,15 +33,15 @@ pub fn main() !void {
     // Type-safe versions (for when you need to ensure specific version)
     const v7_typed: Uuid.V7 = .now();
     const v7_generic = v7_typed.toUuid();
-    std.debug.print("type-safe v7: {}\n", .{v7_generic});
+    std.debug.print("type-safe v7: {f}\n", .{v7_generic});
 
     // Special UUIDs
-    std.debug.print("nil: {}\n", .{Uuid.nil});
-    std.debug.print("max: {}\n", .{Uuid.max});
+    std.debug.print("nil: {f}\n", .{Uuid.nil});
+    std.debug.print("max: {f}\n", .{Uuid.max});
 
     // Fast clock sequence
     const fast: Uuid.V7 = .init(.fast());
-    std.debug.print("v7 fast: {}\n", .{fast});
+    std.debug.print("v7 fast: {f}\n", .{fast});
 
     // Customize clock sequence
     var clock_seq = Uuid.FastClockSequence(Uuid.V7.Timestamp){
@@ -49,5 +49,5 @@ pub fn main() !void {
     };
 
     const custom: Uuid.V7 = .init(clock_seq.next());
-    std.debug.print("v7 custom: {}\n", .{custom});
+    std.debug.print("v7 custom: {f}\n", .{custom});
 }

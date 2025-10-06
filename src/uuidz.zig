@@ -452,13 +452,8 @@ pub const Uuid = packed union {
         }
 
         /// Format for std.fmt (delegates to toString).
-        pub fn format(
-            self: V1,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            return self.toUuid().format(fmt, options, writer);
+        pub fn format(self: V1, writer: *std.Io.Writer) !void {
+            return self.toUuid().format(writer);
         }
 
         fn getNative(self: V1, comptime field_name: []const u8) @FieldType(V1, field_name) {
@@ -561,13 +556,8 @@ pub const Uuid = packed union {
         }
 
         /// Format for std.fmt (delegates to toString).
-        pub fn format(
-            self: V2,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            return self.toUuid().format(fmt, options, writer);
+        pub fn format(self: V2, writer: *std.Io.Writer) !void {
+            return self.toUuid().format(writer);
         }
 
         fn getNative(self: V2, comptime field_name: []const u8) @FieldType(V2, field_name) {
@@ -686,13 +676,8 @@ pub const Uuid = packed union {
         }
 
         /// Format for std.fmt (delegates to toString).
-        pub fn format(
-            self: V3,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            return self.toUuid().format(fmt, options, writer);
+        pub fn format(self: V3, writer: *std.Io.Writer) !void {
+            return self.toUuid().format(writer);
         }
 
         fn getNative(self: V3, comptime field_name: []const u8) @FieldType(V3, field_name) {
@@ -798,13 +783,8 @@ pub const Uuid = packed union {
         }
 
         /// Format for std.fmt (delegates to toString).
-        pub fn format(
-            self: V4,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            return self.toUuid().format(fmt, options, writer);
+        pub fn format(self: V4, writer: *std.Io.Writer) !void {
+            return self.toUuid().format(writer);
         }
 
         fn getNative(self: V4, comptime field_name: []const u8) @FieldType(V4, field_name) {
@@ -923,13 +903,8 @@ pub const Uuid = packed union {
         }
 
         /// Format for std.fmt (delegates to toString)
-        pub fn format(
-            self: V5,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            return self.toUuid().format(fmt, options, writer);
+        pub fn format(self: V5, writer: *std.Io.Writer) !void {
+            return self.toUuid().format(writer);
         }
 
         fn getNative(self: V5, comptime field_name: []const u8) @FieldType(V5, field_name) {
@@ -1082,13 +1057,8 @@ pub const Uuid = packed union {
         }
 
         /// Format for std.fmt (delegates to toString)
-        pub fn format(
-            self: V6,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            return self.toUuid().format(fmt, options, writer);
+        pub fn format(self: V6, writer: *std.Io.Writer) !void {
+            return self.toUuid().format(writer);
         }
 
         fn getNative(self: V6, comptime field_name: []const u8) @FieldType(V6, field_name) {
@@ -1229,13 +1199,8 @@ pub const Uuid = packed union {
         }
 
         /// Format for std.fmt (delegates to toString)
-        pub fn format(
-            self: V7,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            return self.toUuid().format(fmt, options, writer);
+        pub fn format(self: V7, writer: *std.Io.Writer) !void {
+            return self.toUuid().format(writer);
         }
 
         fn getNative(self: V7, comptime field_name: []const u8) @FieldType(V7, field_name) {
@@ -1345,13 +1310,8 @@ pub const Uuid = packed union {
         }
 
         /// Format for std.fmt (delegates to toString)
-        pub fn format(
-            self: V8,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            return self.toUuid().format(fmt, options, writer);
+        pub fn format(self: V8, writer: *std.Io.Writer) !void {
+            return self.toUuid().format(writer);
         }
 
         fn getNative(self: V8, comptime field_name: []const u8) @FieldType(V8, field_name) {
@@ -1360,15 +1320,7 @@ pub const Uuid = packed union {
     };
 
     /// Format for std.fmt (delegates to toString)
-    pub fn format(
-        self: Uuid,
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        _ = fmt;
-        _ = options;
-
+    pub fn format(self: Uuid, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const string = self.toString();
         try writer.writeAll(&string);
     }
@@ -1569,7 +1521,7 @@ const test_allocator = std.testing.allocator;
 
 test "RFC9562 Test Vector A.1" {
     const uuid = try Uuid.parse("c232ab00-9414-11ec-b3c8-9f6bdeced846");
-    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    const formatted = try std.fmt.allocPrint(test_allocator, "{f}", .{uuid});
     defer test_allocator.free(formatted);
 
     try std.testing.expectEqualStrings("c232ab00-9414-11ec-b3c8-9f6bdeced846", formatted);
@@ -1589,7 +1541,7 @@ test "RFC9562 Test Vector A.2" {
     const ns = try Uuid.parse("6ba7b810-9dad-11d1-80b4-00c04fd430c8");
     const uuid = Uuid{ .v3 = .init(ns, "www.example.com") };
 
-    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    const formatted = try std.fmt.allocPrint(test_allocator, "{f}", .{uuid});
     defer test_allocator.free(formatted);
 
     try std.testing.expectEqualStrings("5df41881-3aed-3515-88a7-2f4a814cf09e", formatted);
@@ -1605,7 +1557,7 @@ test "RFC9562 Test Vector A.2" {
 
 test "RFC9562 Test Vector A.3" {
     const uuid = try Uuid.parse("919108f7-52d1-4320-9bac-f847db4148a8");
-    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    const formatted = try std.fmt.allocPrint(test_allocator, "{f}", .{uuid});
     defer test_allocator.free(formatted);
 
     try std.testing.expectEqualStrings("919108f7-52d1-4320-9bac-f847db4148a8", formatted);
@@ -1623,7 +1575,7 @@ test "RFC9562 Test Vector A.4" {
     const ns = try Uuid.parse("6ba7b810-9dad-11d1-80b4-00c04fd430c8");
     const uuid = Uuid{ .v5 = .init(ns, "www.example.com") };
 
-    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    const formatted = try std.fmt.allocPrint(test_allocator, "{f}", .{uuid});
     defer test_allocator.free(formatted);
 
     try std.testing.expectEqualStrings("2ed6657d-e927-568b-95e1-2665a8aea6a2", formatted);
@@ -1639,7 +1591,7 @@ test "RFC9562 Test Vector A.4" {
 
 test "RFC9562 Test Vector A.5" {
     const uuid = try Uuid.parse("1ec9414c-232a-6b00-b3c8-9f6bdeced846");
-    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    const formatted = try std.fmt.allocPrint(test_allocator, "{f}", .{uuid});
     defer test_allocator.free(formatted);
 
     try std.testing.expectEqualStrings("1ec9414c-232a-6b00-b3c8-9f6bdeced846", formatted);
@@ -1657,7 +1609,7 @@ test "RFC9562 Test Vector A.5" {
 
 test "RFC9562 Test Vector A.6" {
     const uuid = try Uuid.parse("017f22e2-79b0-7cc3-98c4-dc0c0c07398f");
-    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    const formatted = try std.fmt.allocPrint(test_allocator, "{f}", .{uuid});
     defer test_allocator.free(formatted);
 
     try std.testing.expectEqualStrings("017f22e2-79b0-7cc3-98c4-dc0c0c07398f", formatted);
@@ -1673,7 +1625,7 @@ test "RFC9562 Test Vector A.6" {
 
 test "RFC9562 Test Vector B.1" {
     const uuid = try Uuid.parse("2489e9ad-2ee2-8e00-8ec9-32d5f69181c0");
-    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    const formatted = try std.fmt.allocPrint(test_allocator, "{f}", .{uuid});
     defer test_allocator.free(formatted);
 
     try std.testing.expectEqualStrings("2489e9ad-2ee2-8e00-8ec9-32d5f69181c0", formatted);
@@ -1689,7 +1641,7 @@ test "RFC9562 Test Vector B.1" {
 
 test "RFC9562 Test Vector B.2" {
     const uuid = try Uuid.parse("5c146b14-3c52-8afd-938a-375d0df1fbf6");
-    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid});
+    const formatted = try std.fmt.allocPrint(test_allocator, "{f}", .{uuid});
     defer test_allocator.free(formatted);
 
     try std.testing.expectEqualStrings("5c146b14-3c52-8afd-938a-375d0df1fbf6", formatted);
@@ -1737,7 +1689,7 @@ test "equality and formatting" {
     try std.testing.expect(!uuid1.eql(uuid3));
 
     // Test formatting
-    const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{uuid1});
+    const formatted = try std.fmt.allocPrint(test_allocator, "{f}", .{uuid1});
     defer test_allocator.free(formatted);
     try std.testing.expectEqualStrings("6ba7b810-9dad-11d1-80b4-00c04fd430c8", formatted);
 }
@@ -1942,11 +1894,11 @@ test "version-specific creation" {
 
 test "namespace UUIDs" {
     // Test predefined namespaces are correctly formatted
-    const dns_formatted = try std.fmt.allocPrint(test_allocator, "{}", .{Uuid.dns});
+    const dns_formatted = try std.fmt.allocPrint(test_allocator, "{f}", .{Uuid.dns});
     defer test_allocator.free(dns_formatted);
     try std.testing.expectEqualStrings("6ba7b810-9dad-11d1-80b4-00c04fd430c8", dns_formatted);
 
-    const url_formatted = try std.fmt.allocPrint(test_allocator, "{}", .{Uuid.url});
+    const url_formatted = try std.fmt.allocPrint(test_allocator, "{f}", .{Uuid.url});
     defer test_allocator.free(url_formatted);
     try std.testing.expectEqualStrings("6ba7b811-9dad-11d1-80b4-00c04fd430c8", url_formatted);
 
@@ -2195,19 +2147,19 @@ test "clock sequence thread safety" {
 test "format edge cases" {
     // Test formatting with all zeros and all ones
     const all_zeros = Uuid.nil;
-    const zeros_str = try std.fmt.allocPrint(test_allocator, "{}", .{all_zeros});
+    const zeros_str = try std.fmt.allocPrint(test_allocator, "{f}", .{all_zeros});
     defer test_allocator.free(zeros_str);
     try std.testing.expectEqualStrings("00000000-0000-0000-0000-000000000000", zeros_str);
 
     const all_ones = Uuid.max;
-    const ones_str = try std.fmt.allocPrint(test_allocator, "{}", .{all_ones});
+    const ones_str = try std.fmt.allocPrint(test_allocator, "{f}", .{all_ones});
     defer test_allocator.free(ones_str);
     try std.testing.expectEqualStrings("ffffffff-ffff-ffff-ffff-ffffffffffff", ones_str);
 
     // Test that format length is always consistent
     for (0..100) |_| {
         const random_uuid = Uuid.V4.init(std.crypto.random);
-        const formatted = try std.fmt.allocPrint(test_allocator, "{}", .{random_uuid});
+        const formatted = try std.fmt.allocPrint(test_allocator, "{f}", .{random_uuid});
         defer test_allocator.free(formatted);
         try std.testing.expectEqual(36, formatted.len); // Standard UUID string length
 
